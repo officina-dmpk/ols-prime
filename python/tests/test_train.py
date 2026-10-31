@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 import torch
 
+from olsprime.eval import stats
 from olsprime.models.encoder import EncoderConfig, Windows
 from olsprime.models.matrix import prob_map
 from olsprime.train import checkpoint
@@ -17,6 +18,7 @@ from olsprime.train.determinism import CUBLAS_WORKSPACE_CONFIG, deterministic
 from olsprime.train.fit import (
     DAY_MS,
     HOUR_MS,
+    BrierFitConfig,
     EncoderData,
     EncoderSystem,
     FitConfig,
@@ -357,3 +359,108 @@ def test_the_determinism_settings_are_the_registered_ones_and_are_restored():
 
 def test_windows_type_is_shared():
     assert Windows.__dataclass_fields__.keys() >= {"bars", "end", "ok"}
+
+
+# --- LFM3's ablations and H6 (docs/PROTOCOL.md, "LFM3's ablations and H6, if time remains") ---------------
+
+
+def brier_cfg(**overrides) -> BrierFitConfig:
+    base = small_cfg(**overrides)
+    return BrierFitConfig(**{f.name: getattr(base, f.name) for f in dataclasses.fields(FitConfig)})
+
+
+def test_the_brier_arm_adds_the_protocols_brier_score_to_the_cross_entropy(data):
+    g = torch.Generator().manual_seed(0)
+    # randn rows, whose probabilities never fall under the floor, and rows with a logit gap above 7, whose smallest
+    # probability (about e^-9 to e^-12) does: there a Brier term taken after the floor differs from one taken before it
+    sharp = torch.tensor([[9.0, 0.0, 0.0], [0.0, 8.0, 0.5], [0.0, 0.0, 12.0], [-4.0, 7.5, -1.0]], dtype=torch.float64)
+    logits = torch.cat([torch.randn(50, 3, generator=g, dtype=torch.float64), sharp])
+    labels = torch.cat([torch.arange(50) % 3, torch.tensor([1, 0, 1, 0])])  # the sharp rows' labels are their least likely classes
+    ce = torch.nn.functional.cross_entropy(logits, labels)
+    assert torch.equal(EncoderSystem(data, small_cfg()).training_loss(logits, labels), ce)  # enc-ols: the cross-entropy, bit for bit
+    p = torch.softmax(logits, dim=-1).numpy()
+    assert p[50:].min() < 1e-3 / 4  # under the floor
+    onehot = np.eye(3)[labels.numpy()]
+    brier = float(((p - onehot) ** 2).sum(axis=1).mean())
+    floored = float(((prob_map(p, small_cfg().prob_floor) - onehot) ** 2).sum(axis=1).mean())
+    assert brier == pytest.approx(stats.brier(p, labels.numpy()), rel=1e-12)  # the protocol's Brier score, sum over the classes
+    assert abs(brier - floored) > 1e-5  # the two differ far beyond the tolerance below
+    got = float(EncoderSystem(data, brier_cfg()).training_loss(logits, labels))
+    assert got == pytest.approx(float(ce) + 1.0 * brier, rel=1e-12)  # before the floor, as the cross-entropy
+    assert abs(got - (float(ce) + floored)) > 1e-5
+    with pytest.raises(ValueError, match="positive"):
+        BrierFitConfig(fit_ms=F, seed=1, brier_weight=0.0)
+
+
+def test_the_brier_config_saves_enc_ols_config_plus_its_weight():
+    base = json.loads(FitConfig(fit_ms=F, seed=2).to_json())
+    brier = json.loads(BrierFitConfig(fit_ms=F, seed=2).to_json())
+    assert brier == base | {"brier_weight": 1.0} and "brier_weight" not in base
+    assert brier["encoder"]["arm"] == "enc-ols"
+
+
+@pytest.fixture(scope="module")
+def one_epoch_base(data):
+    with deterministic():
+        return EncoderSystem(data, small_cfg(epochs=1)).fit()
+
+
+@pytest.mark.parametrize("arm", ["enc-ols-gate", "enc-ols-conv", "enc-ols-brier"])
+def test_two_fits_of_each_ablation_give_the_same_bits(data, one_epoch_base, arm):
+    cfg = brier_cfg(epochs=1) if arm == "enc-ols-brier" else small_cfg(encoder=EncoderConfig(arm=arm), epochs=1)
+    with deterministic():
+        system = EncoderSystem(data, cfg)
+        first, second = system.fit(), EncoderSystem(data, cfg).fit()
+        rows = np.flatnonzero(data.usable & (data.arrays.decision_ms >= F))[:300]
+        f1, f2 = system.forecast(first, rows), system.forecast(second, rows)
+    base = one_epoch_base
+    assert first.epoch_digests() == second.epoch_digests() and first.slice_losses == second.slice_losses
+    assert np.array_equal(f1["raw"], f2["raw"]) and np.array_equal(f1["m"], f2["m"])
+    assert first.epoch_digests() != base.epoch_digests()  # the one change reaches the training
+    assert all(np.array_equal(a, b) for a, b in zip(first.orders, base.orders, strict=True))  # and the episodes' order is the seed's
+    # the early-stopping statistic is enc-ols's, whatever the loss: the epoch kept has the lowest slice log-loss, and that
+    # slice loss is the log-loss of the kept model's floored forecasts of the slice, recomputed here from predict
+    assert first.kept_epoch == int(np.argmin(first.slice_losses)) + 1
+    with deterministic():
+        out = system.predict(system.model_from(first), system.standardized_bars(first.standardizer), first.slice_rows)
+    y = system.y[first.slice_rows]
+    log_loss = float(np.mean(-np.log(out["probs"][np.arange(y.size), y])))
+    assert log_loss > 0 and first.slice_losses[first.kept_epoch - 1] == pytest.approx(log_loss, rel=1e-12)
+
+
+def test_the_brier_arm_keeps_the_epoch_with_the_lowest_slice_log_loss(data):
+    """Over two epochs: the Brier arm's early stopping reads the slice log-loss, lowest first, as enc-ols's does."""
+    with deterministic():
+        system = EncoderSystem(data, brier_cfg(epochs=2))
+        res = system.fit()
+        assert len(res.slice_losses) == 2 and res.slice_losses[0] != res.slice_losses[1]
+        assert res.kept_epoch == int(np.argmin(res.slice_losses)) + 1
+        bars = system.standardized_bars(res.standardizer)
+        y = system.y[res.slice_rows]
+        for epoch, state in enumerate(res.epoch_states, start=1):
+            out = system.predict(system.model_from(dataclasses.replace(res, state=state)), bars, res.slice_rows)
+            log_loss = float(np.mean(-np.log(out["probs"][np.arange(y.size), y])))
+            assert res.slice_losses[epoch - 1] == pytest.approx(log_loss, rel=1e-12)
+
+
+@pytest.mark.parametrize("arm", ["enc-ols-gate", "enc-ols-conv"])
+def test_one_episode_can_be_overfitted_by_each_lfm3_arm(data, arm):
+    system = EncoderSystem(data, small_cfg(encoder=EncoderConfig(arm=arm)))
+    a = data.arrays
+    train = np.flatnonzero(system.training_mask())
+    week = week_start(a.decision_ms[train])
+    rows = train[week == np.unique(week)[2]][:96]
+    pool_rows, pool_stamps = system.sorted_pool(train)
+    from olsprime.models.encoder import Standardizer
+
+    bars = system.standardized_bars(Standardizer.fit(data.windows, train))
+    model = system.new_model()
+    opt = torch.optim.AdamW(model.parameters(), lr=5e-3)
+    first = None
+    for _ in range(150):
+        loss = system.episode_loss(model, bars, rows, pool_rows, pool_stamps)
+        first = float(loss.detach()) if first is None else first
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    assert first > 0.9 and float(loss.detach()) < 0.1, (first, float(loss.detach()))

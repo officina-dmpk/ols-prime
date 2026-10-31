@@ -117,6 +117,24 @@ class FitConfig:
         return json.dumps(dataclasses.asdict(self), sort_keys=True)
 
 
+@dataclass(frozen=True)
+class BrierFitConfig(FitConfig):
+    """H6's ``enc-ols-brier``: a fit of ``enc-ols`` whose training loss adds the Brier score with this weight.
+
+    ``docs/PROTOCOL.md``, "LFM3's ablations and H6": the loss is the cross-entropy plus the Brier score, weight 1.
+    The Brier score is the protocol's own, ``sum_k (p_k - 1{y = k})^2`` over the three classes (in [0, 2],
+    :func:`olsprime.eval.stats.per_row_losses`), on the softmax output before the floor, as the cross-entropy
+    is; both are means over the episode's rows. A subclass, so that :class:`FitConfig` and every saved
+    config of the other arms keep their fields and bytes; its own saved config carries ``brier_weight``.
+    """
+
+    brier_weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        if not (self.brier_weight > 0 and math.isfinite(self.brier_weight)):
+            raise ValueError("the Brier term's weight must be positive and finite")
+
+
 def lr_at(step: int, total: int, cfg: FitConfig) -> float:
     """The learning rate of step ``step`` (0-based) of ``total``.
 
@@ -370,7 +388,17 @@ class EncoderSystem:
         lo_q, hi_q = window_bounds(stamps_t, torch.from_numpy(as_of).to(self.device), mem.window_ms)
         m = readout(prefix, lo_q, hi_q, z_q, mem).m.to(h_q.dtype)
         logits = model.decide(h_q, m)
-        return F.cross_entropy(logits, self._labels(q_rows))
+        return self.training_loss(logits, self._labels(q_rows))
+
+    def training_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """The mean cross-entropy on the softmax output, before the floor; under :class:`BrierFitConfig`
+        (H6's ``enc-ols-brier``) plus ``brier_weight`` times the mean Brier score of the same output."""
+        loss = F.cross_entropy(logits, labels)
+        if isinstance(self.cfg, BrierFitConfig):
+            p = torch.softmax(logits, dim=-1)
+            brier = (p - one_hot(labels, p.shape[-1], p.dtype)).pow(2).sum(dim=-1).mean()
+            loss = loss + self.cfg.brier_weight * brier
+        return loss
 
     def fit(self, *, on_epoch: Any = None) -> FitResult:
         cfg, a = self.cfg, self.data.arrays

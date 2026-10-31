@@ -113,7 +113,7 @@ from olsprime.paths import runs_dir
 from olsprime.train import checkpoint
 from olsprime.train.determinism import build as build_info
 from olsprime.train.determinism import deterministic
-from olsprime.train.fit import FIT_YEARS, SEEDS, EncoderData, EncoderSystem, FitConfig, encoder_data, ensemble, load_state, week_start, year_start_ms
+from olsprime.train.fit import FIT_YEARS, SEEDS, BrierFitConfig, EncoderData, EncoderSystem, FitConfig, encoder_data, ensemble, load_state, week_start, year_start_ms
 
 REPORT_FILE = "report-3.md"
 SERIES_FILE = r2.SERIES_FILE
@@ -740,11 +740,21 @@ def load_fit(parts: Parts, key: str, cfg: Report3Config) -> tuple[dict[str, np.n
     data = parts.get(f"{key}/fit.safetensors")
     if data is None:
         raise PairingRefused(f"{key}: no verified checkpoint")
+    return read_fit(data)
+
+
+def read_fit(data: bytes) -> tuple[dict[str, np.ndarray], Standardizer, FitConfig]:
+    """A checkpoint's kept parameters, standardizer and fit config, from its verified bytes.
+
+    The config is rebuilt as its class saved it: a :class:`BrierFitConfig` when it carries ``brier_weight`` (H6's
+    ``enc-ols-brier``, :mod:`olsprime.bench.ablations`), a :class:`FitConfig` otherwise, as before.
+    """
     arrays, meta = checkpoint.from_bytes(data)
     state = {k.removeprefix("param."): v for k, v in arrays.items() if k.startswith("param.")}
     std = Standardizer(arrays["std.mean"], arrays["std.std"], int(meta["standardizer_rows"]))
     c = json.loads(meta["config"])
-    fc = FitConfig(**{**c, "encoder": EncoderConfig(**c["encoder"]), "memory": MemoryConfig(**c["memory"]), "betas": tuple(c["betas"])})
+    cls = BrierFitConfig if "brier_weight" in c else FitConfig
+    fc = cls(**{**c, "encoder": EncoderConfig(**c["encoder"]), "memory": MemoryConfig(**c["memory"]), "betas": tuple(c["betas"])})
     return state, std, fc
 
 

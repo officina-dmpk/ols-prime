@@ -5,6 +5,7 @@ from olsprime.train.determinism import CUBLAS_WORKSPACE_CONFIG, deterministic
 from olsprime.train.fit import (
     FIT_YEARS,
     SEEDS,
+    BrierFitConfig,
     EncoderData,
     EncoderSystem,
     FitConfig,
@@ -20,6 +21,7 @@ __all__ = [
     "CUBLAS_WORKSPACE_CONFIG",
     "FIT_YEARS",
     "SEEDS",
+    "BrierFitConfig",
     "EncoderData",
     "EncoderSystem",
     "FitConfig",

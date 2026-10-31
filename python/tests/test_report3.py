@@ -31,6 +31,7 @@ from olsprime.eval import stats
 from olsprime.models.encoder import EncoderConfig, EncoderModel
 from olsprime.models.matrix import prob_map
 from olsprime.train import checkpoint
+from olsprime.train.fit import BrierFitConfig, FitConfig
 from tests.test_report2 import CFG as R2CFG
 from tests.test_report2 import FAKE_MANIFEST, fake_root  # noqa: F401 (fixture: Report n°2's synthetic store)
 
@@ -473,6 +474,27 @@ def test_the_check_passes_and_sees_one_changed_digit(full, report2_run, capsys):
     assert r3.check(out, report2_run, CFG, PROV) == 0
     assert r3.check(out / "nowhere", report2_run, CFG, PROV) == 2
     capsys.readouterr()
+
+
+def test_the_fit_reader_rebuilds_a_brier_config_and_every_other_as_before(full):
+    """A checkpoint whose saved config carries ``brier_weight`` (H6's enc-ols-brier) comes back as a BrierFitConfig; every
+    other config comes back as the FitConfig it was, by its class and its JSON (audit pass 4h, m6)."""
+    out, _ = full
+    parts = r3.Parts(out, None)
+    for arm in CFG.arms:
+        for seed in CFG.seeds:
+            state, std, fc = r3.load_fit(parts, r3.part_key(arm, seed, 2019), CFG)
+            want = r3.fit_config(CFG, arm, seed, 2019)
+            assert type(fc) is FitConfig and fc == want and fc.to_json() == want.to_json()
+    data = parts.get(f"{r3.part_key('enc-ols', 1, 2019)}/fit.safetensors")
+    arrays, meta = checkpoint.from_bytes(data)
+    base = r3.fit_config(CFG, "enc-ols", 1, 2019)
+    brier = BrierFitConfig(**{f.name: getattr(base, f.name) for f in dataclasses.fields(FitConfig)}, brier_weight=1.0)
+    got_state, got_std, got = r3.read_fit(checkpoint.to_bytes(arrays, {**meta, "config": brier.to_json()}))
+    assert type(got) is BrierFitConfig and got == brier and got.to_json() == brier.to_json()
+    state, std, _ = r3.load_fit(parts, r3.part_key("enc-ols", 1, 2019), CFG)
+    assert got_state.keys() == state.keys() and all(np.array_equal(got_state[k], state[k]) for k in state)
+    assert np.array_equal(got_std.mean, std.mean) and np.array_equal(got_std.std, std.std) and got_std.rows == std.rows
 
 
 # --- Timing ------------------------------------------------------------------------------------------------

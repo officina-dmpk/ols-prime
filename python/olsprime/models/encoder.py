@@ -47,6 +47,25 @@ Hooks
 ``value_leak`` (:class:`EncoderConfig`) is the planted ``cheat-value`` control of the panel H1: a
 learned projection of the row's own one-hot label, added to the value of the last position in
 every head. It is off by default and nothing in ``olsprime.models`` turns it on.
+
+LFM3's ablations
+----------------
+``docs/PROTOCOL.md``, "LFM3's ablations and H6, if time remains": ``enc-ols`` with one change
+(:data:`ABLATION_ARMS`). Neither is a registered arm of H4 (:data:`ARMS` is unchanged), and with
+``arm="enc-ols"`` not one of their modules is built, so ``enc-ols`` keeps every bit.
+
+- ``enc-ols-gate``: in every block, ``O_h <- sigmoid(x W_g)_h * O_h`` for each OLS head h, with x the
+  block's normalized input (the attention's input) and ``W_g`` a linear map d_model -> d_model
+  without bias, whose slice h gives head h's 8 outputs; the gated heads then go through the output
+  projection (:class:`Attention`).
+- ``enc-ols-conv``: the first block's attention is a gated short convolution (:class:`ShortConv`),
+  ``out(sigmoid(x W_g) * conv3(x W_u + b_u))`` with a depthwise causal convolution of width 3 over
+  the window, zero-padded on the left; the other blocks keep their OLS attention.
+
+Both are built as ``enc-ols`` first, then changed (:meth:`EncoderModel.__init__`): the gates are
+added, or the first attention swapped for the convolution, after every ``enc-ols`` module has
+drawn its initial weights. So under one seed an ablation starts from ``enc-ols``'s own initial
+weights for every module it shares with it, and differs only by its change.
 """
 
 from __future__ import annotations
@@ -72,7 +91,10 @@ N_QUANTITIES = len(QUANTITIES)
 CLIP = 8.0
 
 ARMS: tuple[str, ...] = ("enc-ols", "enc-softmax", "enc-linear")
-ATTENTION_OF_ARM: Mapping[str, str] = {"enc-ols": "ols", "enc-softmax": "softmax", "enc-linear": "linear"}
+# LFM3's two ablations of the encoder; H6's enc-ols-brier changes the loss only, and its encoder is enc-ols's.
+ABLATION_ARMS: tuple[str, ...] = ("enc-ols-gate", "enc-ols-conv")
+ATTENTION_OF_ARM: Mapping[str, str] = {"enc-ols": "ols", "enc-softmax": "softmax", "enc-linear": "linear", "enc-ols-gate": "ols", "enc-ols-conv": "ols"}
+CONV_WIDTH = 3  # enc-ols-conv: the width of its depthwise causal convolution
 # How the OLS head evaluates O = W V: "assoc" is Q~ (A^-1 (K~^T V)), O(T d^2); "explicit" forms W
 # (T x T) and then W V, O(T^2 d). Same function, different rounding and cost.
 OLS_ORDERS: tuple[str, ...] = ("assoc", "explicit")
@@ -349,23 +371,38 @@ class EncoderConfig:
     value_leak: bool = False  # cheat-value: a planted control of the panel H1, never an honest arm
 
     def __post_init__(self) -> None:
-        if self.arm not in ARMS:
-            raise ValueError(f"unknown arm {self.arm!r}; the arms are {ARMS}")
+        if self.arm not in ARMS and self.arm not in ABLATION_ARMS:
+            raise ValueError(f"unknown arm {self.arm!r}; the arms are {ARMS}, LFM3's ablations {ABLATION_ARMS}")
         if self.n_heads * self.d_head != self.d_model:
             raise ValueError("n_heads * d_head must equal d_model")
         if self.ols_order not in OLS_ORDERS:
             raise ValueError(f"unknown OLS order {self.ols_order!r}")
-        if self.arm == "enc-ols" and self.window < self.min_window_per_head * self.d_head:
+        if self.attention == "ols" and self.window < self.min_window_per_head * self.d_head:
             raise ValueError(
                 f"T = {self.window} is not >> d_head = {self.d_head} (T / d_head < {self.min_window_per_head}): "
                 "the OLS head would collapse towards the identity"
             )
         if not (self.lambda_init > self.lambda_floor > 0):
             raise ValueError("lambda_init must exceed lambda_floor > 0")
+        if self.arm in ABLATION_ARMS and self.value_leak:
+            raise ValueError("the planted cheat-value control is enc-ols's, never an ablation's")
+        if self.conv_first and self.n_layers < 2:
+            raise ValueError("enc-ols-conv replaces the first block's attention and keeps OLS attention after it: it needs 2 blocks or more")
 
     @property
     def attention(self) -> str:
+        """The operator of the attention blocks (for ``enc-ols-conv``, of every block but the first)."""
         return ATTENTION_OF_ARM[self.arm]
+
+    @property
+    def gated(self) -> bool:
+        """``enc-ols-gate``: a sigmoid gate on every OLS head's output."""
+        return self.arm == "enc-ols-gate"
+
+    @property
+    def conv_first(self) -> bool:
+        """``enc-ols-conv``: the first block's attention is a gated short convolution."""
+        return self.arm == "enc-ols-conv"
 
 
 def inverse_softplus(y: float) -> float:
@@ -386,6 +423,9 @@ class Attention(nn.Module):
             self.theta = nn.Parameter(torch.full((cfg.n_heads,), theta))
         if cfg.value_leak:
             self.leak = nn.Linear(cfg.n_classes, cfg.d_model, bias=False)
+        # enc-ols-gate's W_g (d_model -> d_model, no bias; slice h feeds head h). Set by EncoderModel after every
+        # enc-ols module has drawn its weights; None (no module, no parameter) in every other arm.
+        self.gate: nn.Linear | None = None
 
     def lam(self) -> torch.Tensor:
         """lambda = softplus(theta) + floor, one per head."""
@@ -414,6 +454,8 @@ class Attention(nn.Module):
         else:
             o = linear_attention(q, k, v)
         b, _, t, _ = o.shape
+        if self.gate is not None:  # enc-ols-gate: O_h <- sigmoid(x W_g)_h * O_h, x the block's normalized input
+            o = o * torch.sigmoid(self.gate(x)).view(b, t, self.cfg.n_heads, self.cfg.d_head).transpose(1, 2)
         return self.out(o.transpose(1, 2).reshape(b, t, self.cfg.d_model))
 
     def weights(self, x: torch.Tensor, leak_labels: torch.Tensor | None = None) -> torch.Tensor:
@@ -422,6 +464,51 @@ class Attention(nn.Module):
             raise ValueError("only the OLS head exposes its W")
         q, k, _ = self.project(x, leak_labels)
         return ols_weights(q, k, self.lam())
+
+
+def causal_depthwise_conv(u: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
+    """``y[:, j, c] = sum_i kernel[c, i] u[:, j - (w - 1) + i, c]``, the window zero-padded on the left: ``(B, T, C)``.
+
+    ``F.conv1d(u^T, kernel[:, None, :], padding=w - 1, groups=C)`` cut to its first T outputs, written as
+    w shifted products so that no convolution kernel (and no algorithm choice) is involved: the same
+    elementwise operations on every device. ``kernel[c, w - 1]`` weighs bar j itself.
+    """
+    t, w = u.shape[1], kernel.shape[1]
+    padded = F.pad(u, (0, 0, w - 1, 0))
+    out = padded[:, 0:t, :] * kernel[:, 0]
+    for i in range(1, w):
+        out = out + padded[:, i : i + t, :] * kernel[:, i]
+    return out
+
+
+class ShortConv(nn.Module):
+    """``enc-ols-conv``'s first block: a gated short convolution in place of the attention.
+
+    ``out(sigmoid(x W_g) * conv3(x W_u + b_u))``, x the block's normalized input: a value map with a bias (as
+    V's), a depthwise causal convolution of width 3 over the window without bias (W_u's bias already
+    gives each channel its offset), a sigmoid gate from x without bias (as ``enc-ols-gate``'s), and an output
+    projection with a bias (as the attention's). The kernel is drawn as ``nn.Conv1d`` draws a depthwise
+    kernel, U(-1/sqrt 3, 1/sqrt 3).
+    """
+
+    def __init__(self, cfg: EncoderConfig) -> None:
+        super().__init__()
+        self.cfg = cfg
+        d = cfg.d_model
+        self.value = nn.Linear(d, d)
+        self.kernel = nn.Parameter(torch.empty(d, CONV_WIDTH))
+        bound = 1.0 / math.sqrt(CONV_WIDTH)
+        nn.init.uniform_(self.kernel, -bound, bound)
+        self.gate = nn.Linear(d, d, bias=False)
+        self.out = nn.Linear(d, d)
+
+    def forward(self, x: torch.Tensor, leak_labels: torch.Tensor | None = None) -> torch.Tensor:
+        if leak_labels is not None:
+            raise ValueError("labels reach the encoder only in the planted cheat-value control")
+        return self.out(torch.sigmoid(self.gate(x)) * causal_depthwise_conv(self.value(x), self.kernel))
+
+    def weights(self, x: torch.Tensor, leak_labels: torch.Tensor | None = None) -> torch.Tensor:
+        raise ValueError("only the OLS head exposes its W; enc-ols-conv's first block is a convolution")
 
 
 class Block(nn.Module):
@@ -489,6 +576,12 @@ class EncoderModel(nn.Module):
         self.encoder = Encoder(cfg)
         self.key = nn.Linear(cfg.d_model, cfg.key_dim, bias=False)
         self.head = DecisionHead(cfg)
+        # LFM3's ablations: enc-ols, then one change, drawn after every enc-ols module (the module docstring).
+        if cfg.gated:
+            for block in self.encoder.blocks:
+                block.attn.gate = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
+        if cfg.conv_first:
+            self.encoder.blocks[0].attn = ShortConv(cfg)
 
     def encode(self, x: torch.Tensor, leak_labels: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
         """``(h, z)`` of each window."""
@@ -515,9 +608,12 @@ def expected_parameters(cfg: EncoderConfig) -> int:
     embed = cfg.n_quantities * d + d + cfg.window * d
     attn = (d * 3 * d + 3 * d) + (d * d + d) + (cfg.n_heads if cfg.attention == "ols" else 0)
     attn += cfg.n_classes * d if cfg.value_leak else 0
+    attn += d * d if cfg.gated else 0  # enc-ols-gate: W_g, no bias
     block = 2 * (2 * d) + attn + (d * m + m) + (m * d + d)
     head = (d + cfg.n_classes) * cfg.head_hidden + cfg.head_hidden + cfg.head_hidden * cfg.n_classes + cfg.n_classes
-    return embed + cfg.n_layers * block + 2 * d + d * cfg.key_dim + head
+    # enc-ols-conv: the first block's attention becomes W_u and b_u, the d x 3 kernel, W_g and the output projection
+    conv = ((d * d + d) + d * CONV_WIDTH + d * d + (d * d + d)) - attn if cfg.conv_first else 0
+    return embed + cfg.n_layers * block + conv + 2 * d + d * cfg.key_dim + head
 
 
 def decay_groups(model: nn.Module, weight_decay: float) -> list[dict[str, Any]]:
