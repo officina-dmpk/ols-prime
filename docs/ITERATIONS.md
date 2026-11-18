@@ -661,3 +661,17 @@ So this iteration measures our detector against its rivals on one open benchmark
 **Set up before wave 1 (2026-11-18).**
 - The branch `iteration-5` was made from `origin/main` at `0e582bb`, with no upstream tracking.
 - No code changed, nothing ran, nothing was committed.
+
+**Progress (2026-11-18, orchestrator of iteration 5).**
+- **No learning page this iteration.** Abdou dropped it on 2026-11-18. The "Done when" item on the learning page's link is waived, and the outcome records it as not done.
+- **Wave 1 done.** The notes are `reading-papers.md`, `reading-terms.md` and `misses-findings.md` in the briefs folder.
+  - **The reading** went through a summarising fetch. The orchestrator re-read Fonseca §8.3 verbatim: it gives no perturbation law, epoch rule, run count or tolerance.
+  - **The misses.** The 163 and 193 counts are both right and nested. They differ by the cuts compared: both schedules against H1's 16 cuts only.
+  - **The Binance Terms of Use** were read in part, from the PDF in force since 2026-10-27.
+- **A third reading, run C,** covers Log-Linear Attention, MesaNet, 2504.09663 and Nagel. `paper.md` needs them read in full or dropped.
+- **The pre-registration draft is `prereg-draft.md`,** sent to audit pass 5a.
+- **Audit pass 5a (2026-11-18): register with fixes.** It found 2 Blockers, 10 Major, 11 Minor and 4 Nits (`audit-5a-findings.md`).
+  - B1: the finite-only rule does not isolate catches through a missing bar.
+  - B2: truncation's rate depends on how a comparison with a missing value is read.
+  - The fixed draft needs the auditor's re-read before registration.
+  - The orchestrator handed off to a fresh session with `resume-2.md`, its context being past 200k tokens.
