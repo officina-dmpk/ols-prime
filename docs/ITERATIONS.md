@@ -561,3 +561,103 @@ The first official run of H1 (commit 9c414ca) also held. CI on Linux then showed
 - **The deferred work.** The second look at audit 4h's fixes, the ablations' 54 fits, H6 and its seed-split control, the first `explain head` calls and H1's extreme-shape cut.
 
 **Learning page.** « Le nombre qui mentait », in French, written by `teacher` and checked by the orchestrator. At Abdou's choice it stays a local HTML page, `C:\Users\abdou\ols-prime-pages\iteration-4\iteration-4.html`, read in a browser, and is not published as an Artifact, so this iteration has no link.
+
+## Iteration 5 — A leak detector measured against its rivals, and the paper (2026-11-18)
+
+**Goal.** Abdou wants an arXiv paper as soon as possible (2026-11-18). A state-of-the-art search on that day (six research agents; report in French outside the repository, `C:\Users\abdou\ols-prime-pages\reports\`) found no work that combines more than two of OLS Prime's four pieces, but a precedent for each piece. It found in particular:
+- **Future invariance (H1) is not a new kind of test.** It belongs to the class of the "two-run differential detector" and the dynamic oracle of Fonseca, arXiv 2607.04958. Freqtrade's `lookahead-analysis` truncates the future instead of altering it.
+- **What nobody publishes is the measurement:** a detector's catch rate on a generated population of temporal leaks, with an interval, false positives on honest twins and a classification of its misses. That is the paper's claim to make.
+
+So this iteration measures our detector against its rivals on one open benchmark, and drafts the paper around that measurement, with Reports n°2 and n°3 as the case study.
+- **Paper chosen by default.** Abdou did not choose between a bench paper and a model paper, and said to continue. The orchestrator chose the bench paper, as recommended, and Abdou can overturn it.
+- **The goal must survive our detector losing.** Truncation may catch everything future invariance catches, and more. The contribution is the benchmark and its measurement, not a ranking.
+
+**Deliverables.**
+1. **The reading first.** `scout` reads in full, before any detector is defined:
+   - Fonseca 2607.04958, sections 4 to 8: the paper's detectors, its leak classes M1–M3 and FP1/FP2/FP2b, and its artifact;
+   - freqtrade's `lookahead-analysis` documentation and Causify's DataFlow, arXiv 2512.23977, which define two of the detector arms;
+   - Garnelo & Czarnecki 2305.10203;
+   - Goulet Coulombe, Göbel & Klieber 2412.13076;
+   - the regression cube of TKDE 2006;
+   - Binance's Terms of Use, which `docs/DATA.md` lists as unread.
+
+   No citation enters the draft from an abstract or a snippet.
+2. **The detector benchmark.** `olsprime.bench.detectors` runs several detectors on one leak population and its honest twins:
+   - future invariance (×3 / ÷3, H1's cuts);
+   - truncation, ending at the cut and one bar later;
+   - re-tiling;
+   - a two-run detector with a default perturbation at sampled dates;
+   - the future-shuffle twin used as a detector.
+
+   For each it reports the catch rate with a Wilson interval, the honest twins flagged, pairwise McNemar tables and the union. If the reading allows, Fonseca's classes are rebuilt on our bars.
+   - **The confirmatory population is fresh:** a new seed that nothing has run. The 10,000 leaks of seed 20261029 have been seen, and the generator places half its thresholds by H1's bands, so they become descriptive.
+   - Each detector's definition, the metric and the denominator are fixed before any detector touches a leak. Only raw catch rates are reported, with no adjusted score.
+3. **The record of the misses, reconciled.** `docs/RESULTS.md` counts 163 constant misses in the adversary row and 193 in the twins row. The likely cause, in `bench/twins.py` lines 33–37: the twins' flag compares H1's cuts only, the adversary's both schedules. The definitions are confirmed in the code and both are stated wherever the counts appear.
+4. **The case study, exploratory.** The new analyses on 2019–2024 are exploratory, and each is a logged contact with the data. They read Report n°2's and Report n°3's `series.npz` by their digests and refit nothing:
+   - Report n°2's Brier skill split into "move or no move" and "direction given a move";
+   - the OLS-minus-softmax gap and Matrix's skill regressed on hourly reversal, momentum and volatility timing (Nagel's control).
+5. **The paper draft.** LaTeX in `paper/`, in English:
+   - claims written as `docs/RESULTS.md` records them: H4 as non-inferiority, the 98.0 % as this generator's rate;
+   - every limit stated, the vault sealed and its exposure of iteration 1 recorded;
+   - the AI assistance reported, as arXiv requires.
+
+   `leakage-auditor` reads it claim by claim.
+6. **H14, if time remains.** No portfolio simulator exists yet: `crates/backtest`'s `simulate` takes one pair's bars, and a search for "portfolio" in `python/olsprime` finds only Report n°2's runner and `eval/stats.py`. H14 needs one built, audited and run as registered.
+
+**Priority if time runs out**, in this order:
+1. the reading;
+2. the audited pre-registration;
+3. the detector benchmark;
+4. the reconciled misses;
+5. the paper draft;
+6. the case study;
+7. H14.
+
+**Dropped first, reported as not run:**
+- H14;
+- the rebuilt timing stage and H13's re-measure;
+- LFM3's ablations, H6 and its seed-split control (branch `iteration-5-ablations` at `5be70a3`, fixes unverified);
+- the first `explain head` calls;
+- H1's extreme-shape cut;
+- the power study's second run.
+
+**Out of scope.** The validation year and the vault stay sealed. Caladrius: Abdou set it aside on 2026-11-18.
+
+**Abdou's decisions, not deliverables:**
+- the paper's licence, which is irrevocable, and CC BY-NC-SA 4.0 is what the Binance Vision terms impose on derived outputs;
+- the author name and the arXiv category (q-fin.ST with cs.LG, or the reverse);
+- any public release of the leak corpus, whose outputs derive from Binance data;
+- using arXiv v1 as the public pre-registration of the vault test;
+- the endorser: since 2026-01-21, an author with no institution needs an established arXiv author of the same domain to endorse them, and the draft comes first.
+
+**Hypotheses touched.** H1 (its misses; descriptive). The new claims about the detectors are drafted in `prereg.md` and registered in `docs/HYPOTHESES.md` only after audit pass 5a. H14, if run.
+
+**Done when.**
+- The reading is done and its notes are in the briefs folder.
+- The pre-registration was audited before any detector ran on a leak, and every finding was fixed or logged.
+- Every check of `CLAUDE.md` is green, locally and in GitHub Actions.
+- Every change to data, model or evaluation code has passed `leakage-auditor`.
+- `RESULTS.md` has the new rows with their variant counts, and every item not run is reported as not run.
+- The paper draft exists and its claims passed `leakage-auditor`.
+- The outcome and one bolder next step are recorded here, with the learning page's link.
+- Commit, merge and push only with Abdou's go-ahead.
+
+**Plan.** Briefs are in `.claude/briefs/iteration-5/`. At most three agents run at once.
+
+| Wave | Task | Agent | Brief |
+|---|---|---|---|
+| 1 | The reading and Binance's Terms of Use | `scout` (two runs) | `reading.md` |
+| 1 | The two definitions of a constant miss | `ml-engineer` | `misses.md` |
+| 2 | Pre-registration of the detector comparison | orchestrator | `prereg.md` |
+| 2 | Audit pass 5a, on the pre-registration | `leakage-auditor` | `audit.md` (pass 5a) |
+| 3 | The detector benchmark, on synthetic bars and the development seed only | `ml-engineer` | `detectors.md` |
+| 3 | The case study's two analyses | `ml-engineer` | `case-study.md` |
+| 3 | Audit pass 5b, on the code | `leakage-auditor` | `audit.md` (pass 5b) |
+| 4 | Official runs and rows | `experiment-runner` | `detectors.md` (section "Runs") |
+| 4 | The paper draft | orchestrator | `paper.md` |
+| 5 | Audit of the results and of the paper's claims | `leakage-auditor` | `audit.md` (phase 2) |
+| 6 | Learning page | `teacher` | iteration 4's `learning-page.md`, adapted |
+
+**Set up before wave 1 (2026-11-18).**
+- The branch `iteration-5` was made from `origin/main` at `0e582bb`, with no upstream tracking.
+- No code changed, nothing ran, nothing was committed.
