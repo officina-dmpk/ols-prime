@@ -40,7 +40,12 @@ The repository's own `MIT` license covers its scripts, not the datasets.
 - **Live trading (roadmap phase 6).** Clause 2.4 extends the terms to models derived from the data, and clause 4.2 forbids live proprietary trading. A real-money test of a model trained on this data, even 50 €, may therefore fall outside what the terms allow. Settle one of these before phase 6:
   - train the live model on market data whose terms allow live use, such as the chosen venue's own data;
   - or get Binance's written answer.
-- **Terms of Use.** Binance has been closed to French residents since 2026-07-01. Clause 2.3 of the dataset terms grants access to any individual, but the Terms of Use they supplement (clause 1.2) have not been read yet.
+- **Terms of Use.** Binance has been closed to French residents since 2026-07-01, by press reports not yet checked at a primary source. Clause 2.3 of the dataset terms grants access to any individual; the Terms of Use they supplement (clause 1.2) were read in part on 2026-11-18 (notes: `.claude/briefs/iteration-5/reading-terms.md` §7). Not legal advice:
+  - **Version read:** effective 2026-10-27, a PDF embedded in binance.com/en/terms; its metadata title says "Draft". Read: pp. 1-6, 44-56, 60-67 of 74. Unread: pp. 7-43, 57-59, 68-74, among them the definitions of "Binance Services", "Sites" and "Restricted Person", and the linked List of Prohibited Countries.
+  - Cl. 2.1(f)(ii) and 25.5 exclude residents of prohibited countries from the Services. The list was not read, and no clause was found that applies this to the public archive.
+  - Cl. 27 licenses Binance IP for non-commercial use. Cl. 38 and 37 set ADGM law and ICC arbitration seated in the ADGM.
+  - No clause on publishing research or redistributing data was found in the pages read. The precedence list of cl. 1.4 does not rank the dataset terms, and their clauses 1.2 and 1.5 conflict.
+  - **Reading:** a paper with credit under CC BY-NC-SA 4.0 looks allowed; a corpus of bar-derived outputs stays an open question. A written question to Binance's data contact or a lawyer is Abdou's act.
 - **Access.** The downloader:
   - caps concurrency: 8 workers for klines by default, 16 for the universe (the 2026-10-27 download of the members' bars also used 16);
   - retries 429, 500, 502, 503 and 504 answers with exponential backoff;

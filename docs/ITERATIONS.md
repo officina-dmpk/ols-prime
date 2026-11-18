@@ -675,3 +675,9 @@ So this iteration measures our detector against its rivals on one open benchmark
   - B2: truncation's rate depends on how a comparison with a missing value is read.
   - The fixed draft needs the auditor's re-read before registration.
   - The orchestrator handed off to a fresh session with `resume-2.md`, its context being past 200k tokens.
+- **Second session (2026-11-18): the pre-registration is registered, uncommitted until Abdou's go-ahead.**
+  - The draft was fixed for pass 5a (v2), re-read by `leakage-auditor` in pass 5a-bis (register with fixes: no Blocker, 7 Major, 11 Minor; `audit-5a-bis-findings.md`), and fixed again (v3), adopting its replacement texts verbatim. The disposition of every finding is in `prereg-draft.md` §9 and §10.
+  - **What changed in the design.** Truncation is reported under three conventions for a missing read, with a sentence fixed for the paper; catches are split by read; TRUNC-1 is freqtrade's comparison, a date-shift replicate; TWO-RUN has its own seeds and a code-level repair; the mirror asymmetry of each detector is measured; a placement-invariant subset and a cut-date bootstrap are reported beside H15, never deciding; a stop rule holds every rate back until all assertions pass.
+  - **The quantile table** was computed from the pre-2019 bars, a logged contact. Natural thresholds fall inside H1's bands 84 % of the time for body and 100 % for range, 32 to 40 % for the wicks: the new placement follows the bars, and is not neutral to FI.
+  - **Registered:** the section "Leak detectors measured against each other (iteration 5)" in `docs/PROTOCOL.md`, and H15 in `docs/HYPOTHESES.md`, each with a dated change-log line.
+  - **Also written:** the dated correction row of the constant misses in `docs/RESULTS.md`, and the Terms of Use line in `docs/DATA.md`.
