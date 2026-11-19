@@ -690,6 +690,14 @@ So this iteration measures our detector against its rivals on one open benchmark
     - **Minor 2 is logged.** The code digest pins the Windows working tree, not the commit.
     - **Minor 3 and N6–N9 are logged.** Minor 3 is five new mutants that survive; their tests come after wave 4.
     - **The frozen commit is `b71ba65`,** named in `docs/PROTOCOL.md`'s dated line. Wave 4 runs on the commit that carries that line.
+  - **Wave 4, on Windows at `f12b9b5`, 15:17–15:59 UTC.** Every step passed:
+    - the platform digest;
+    - §1.3's replay, which equals iteration 3's;
+    - the descriptive run;
+    - the confirmatory run, the only draw of seed 20261118;
+    - its identity rerun, byte for byte.
+
+    The contacts and hashes are in `docs/PROTOCOL.md`. The rates and H15's label wait for audit phase 2 before they go into `docs/RESULTS.md`. The next steps are in `.claude/briefs/iteration-5/resume-5.md`.
   - **Candidate for the bolder next step, agreed with Abdou on 2026-11-19.** This is not registered, and nothing in iteration 5's design changes. Today's population holds direct leaks: functions of the next bars, drawn by our own generator. Real leaks mostly come from the pipeline:
     - a scaler or normalisation fitted on the whole series;
     - a centred rolling window;
