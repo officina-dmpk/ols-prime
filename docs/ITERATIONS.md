@@ -685,6 +685,11 @@ So this iteration measures our detector against its rivals on one open benchmark
 - **Fourth session (2026-11-19).**
   - Wave 3 is committed at `6ab7e3e`, as pass 5b audited it (code digest `8607e7c4…`). The fix wave (`fixes.md`) runs before pass 5b-bis and the frozen commit.
   - **The fix wave is done** (`fixes-progress.md`). Every run-path finding is fixed: M1, M2, M4, Minors 5 to 11 and 14, and the nits. The auditor's scripts are now independent tests, and an opt-in test kills all 16 planted mutants on a copy of the tree. The full suite on Windows gives 1,743 passed and 5 skipped. The development digest still reproduces, and the code digest is `3b59007a…`. The text findings (Minors 12, 13, 15 and 16) and the replaced predictions are logged in `docs/PROTOCOL.md`'s dated line of 2026-11-19 after pass 5b. The fix commit is followed by pass 5b-bis, which reads its diff.
+  - **Pass 5b-bis: GO with fixes** on `b71ba65`, with no Blocker: 1 Major, 3 Minor and 9 Nits (`audit-5b-bis-findings.md`). The run path needed no change.
+    - **Major 1, Minor 1, N2, N4, N5 and N9 are fixed in `wave4.py`.** It refuses an earlier attempt's date, checks the development digest before the first bar is read, and stops unless every output records step 0's commit and code digest.
+    - **Minor 2 is logged.** The code digest pins the Windows working tree, not the commit.
+    - **Minor 3 and N6–N9 are logged.** Minor 3 is five new mutants that survive; their tests come after wave 4.
+    - **The frozen commit is `b71ba65`,** named in `docs/PROTOCOL.md`'s dated line. Wave 4 runs on the commit that carries that line.
   - **Candidate for the bolder next step, agreed with Abdou on 2026-11-19.** This is not registered, and nothing in iteration 5's design changes. Today's population holds direct leaks: functions of the next bars, drawn by our own generator. Real leaks mostly come from the pipeline:
     - a scaler or normalisation fitted on the whole series;
     - a centred rolling window;
