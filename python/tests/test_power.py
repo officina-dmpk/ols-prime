@@ -364,6 +364,26 @@ def test_the_digest_check_refuses_a_changed_file(tmp_path, capsys):
         pw.load_series(path, changed)
 
 
+def test_report_file_names_the_run_that_vouches_and_the_default_stays_report2():
+    """A Report n°3 run folder (series.npz beside report3.json and config.json) is read with report_file="report3.json";
+    the default still asks for report2.json and refuses that folder, with the same message as before."""
+    rng = np.random.default_rng(4)
+    comps = [pw.Comparison("S", "x", "y")]
+    run = runs_dir() / "run3"
+    digest = fake_run(run, arms(0.05 * rng.standard_normal(400), rng), comps)
+    (run / "report2.json").rename(run / "report3.json")
+    path = run / r2.SERIES_FILE
+    with pytest.raises(pw.SeriesRefused, match="no report2.json and config.json beside the series"):
+        pw.load_series(path, digest)
+    arrays, report, config, report_sha = pw.load_series(path, digest, report_file="report3.json")
+    assert report["series"]["sha256"] == digest and arrays["log_loss"].shape == (3, 400) and "config" in config
+    assert report_sha == r2.sha256_file(run / "report3.json")
+    report["series"]["sha256"] = "0" * 64
+    r2._write_json(run / "report3.json", report)
+    with pytest.raises(pw.SeriesRefused, match="report3.json records"):
+        pw.load_series(path, digest, report_file="report3.json")
+
+
 def test_the_path_is_refused_before_a_byte_is_read(tmp_path, monkeypatch):
     """Only a file under the runs root, symlinks resolved, and under no data root or the vault key's folder: refused with
     the right digest too, so the refusal comes before the bytes."""

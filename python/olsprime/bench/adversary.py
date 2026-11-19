@@ -137,6 +137,7 @@ registered rule does not change.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import math
@@ -690,7 +691,10 @@ class Leak:
         (target 0, ``exp_return`` 0, the probabilities at ``z = 0``: ``(0.4, 0.2, 0.4)``) is multiplied by ``eps``.
         At ``eps = 1`` the outputs are returned untouched, bit for bit.
         """
-        v = self.expr.evaluate(view)
+        return self.outputs_of(self.expr.evaluate(view))
+
+    def outputs_of(self, v: Any) -> dict[str, np.ndarray]:
+        """The outputs of :meth:`outputs` for an already evaluated expression ``v`` (see :func:`outputs_under`)."""
         x = np.asarray(v, dtype=np.float64) if self.expr.binary else _clean(v)
         eps = self.scale
         if self.output == "target":
@@ -710,6 +714,194 @@ class Leak:
             "p_neutral": np.where(missing, np.nan, NEUTRAL),
             "p_up": np.where(missing, np.nan, p_up),
         }
+
+
+# --- The quantile placement (iteration 5) -----------------------------------------------------
+# docs/PROTOCOL.md, "Leak detectors measured against each other (iteration 5)", §1.3, §1.4 and §1.7.
+
+H1_BANDS = "h1-bands"
+QUANTILE = "quantile"
+PLACEMENTS: tuple[str, ...] = (H1_BANDS, QUANTILE)
+QUANTILE_LEVELS: tuple[float, float] = (0.02, 0.98)
+# The registered digest of runs/2026-11-18-quantile-table/table.json (outside git: it derives from Binance data).
+QUANTILE_TABLE_SHA256 = "527e01ba7028fb5666e694fcadd5b22d2fdea31718d96e53d98a29e383183c43"
+TABLE_PAIRS: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")
+TABLE_QUANTITIES: tuple[str, ...] = (
+    "body", "upper_wick", "lower_wick", "range", "fill", "close_location", "taker_base_share", "taker_quote_share", "wick_ratio",
+)  # fmt: skip
+TABLE_POSITIVE_ONLY = frozenset({"body", "upper_wick", "lower_wick", "range"})
+
+
+@dataclass
+class Placement:
+    """How ``_threshold`` places a threshold: ``table`` None for ``h1-bands``; ``calls`` counts its calls."""
+
+    name: str
+    table: dict[str, np.ndarray] | None = None
+    calls: int = 0
+
+
+class TableRefused(ValueError):
+    """A quantile table whose bytes are not the registered ones, or a placement without its table."""
+
+
+def build_table(bars_by_pair: dict[str, pl.DataFrame]) -> dict[str, np.ndarray]:
+    """Sorted kept values of each quantity, both pairs pooled (finite; strictly positive for the log quantities).
+
+    Moved from ``.claude/briefs/iteration-5/quantile_table.py`` unchanged (§1.4): the same function, the same bytes.
+    """
+    pooled: dict[str, list[np.ndarray]] = {q: [] for q in TABLE_QUANTITIES}
+    for pair in TABLE_PAIRS:
+        q = quantities(bars_by_pair[pair])
+        for name in TABLE_QUANTITIES:
+            x = q[name][np.isfinite(q[name])]
+            if name in TABLE_POSITIVE_ONLY:
+                x = x[x > 0]
+            pooled[name].append(x)
+    return {k: np.sort(np.concatenate(v)).astype(np.float64) for k, v in pooled.items()}
+
+
+def table_bytes(table: dict[str, np.ndarray]) -> bytes:
+    """JSON, sorted keys, each value written with repr, no spaces."""
+    body = ",".join(f'"{k}":[' + ",".join(repr(float(v)) for v in table[k]) + "]" for k in sorted(table))
+    return ("{" + body + "}").encode("ascii")
+
+
+def parse_table(raw: bytes) -> dict[str, np.ndarray]:
+    """The table of :func:`table_bytes`, refused unless it writes back to the same bytes and every column is sorted."""
+    try:
+        parsed = json.loads(raw.decode("ascii"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise TableRefused(f"the quantile table is not ASCII JSON: {e}") from e
+    if not isinstance(parsed, dict) or sorted(parsed) != sorted(TABLE_QUANTITIES):
+        raise TableRefused(f"the quantile table must hold exactly {sorted(TABLE_QUANTITIES)}")
+    table = {k: np.asarray(v, dtype=np.float64) for k, v in parsed.items()}
+    if table_bytes(table) != raw:
+        raise TableRefused("the quantile table does not write back to its own bytes")
+    for k, v in table.items():
+        if v.size == 0 or not np.all(np.isfinite(v)) or np.any(np.diff(v) < 0):
+            raise TableRefused(f"the quantile table's {k!r} is empty, not finite or not sorted")
+    return table
+
+
+def load_table(path: str | Path) -> dict[str, np.ndarray]:
+    """The registered quantile table: the bytes at ``path`` must hash to :data:`QUANTILE_TABLE_SHA256`. Never rebuilt."""
+    raw = Path(path).read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != QUANTILE_TABLE_SHA256:
+        raise TableRefused(f"{Path(path).name}'s SHA-256 is {digest}, not the registered {QUANTILE_TABLE_SHA256}: refused")
+    return parse_table(raw)
+
+
+def placement_for(placement: str, table_path: str | Path | None) -> Placement:
+    """The :class:`Placement` of a ``generate`` call: ``quantile`` loads and checks the registered table."""
+    if placement == H1_BANDS:
+        if table_path is not None:
+            raise TableRefused("table_path is for placement='quantile' only")
+        return Placement(H1_BANDS)
+    if placement == QUANTILE:
+        if table_path is None:
+            raise TableRefused("placement='quantile' needs table_path, the registered quantile table")
+        return Placement(QUANTILE, load_table(table_path))
+    raise ValueError(f"unknown placement {placement!r}; expected one of {PLACEMENTS}")
+
+
+# --- Conventions for a missing read (iteration 5, docs/PROTOCOL.md §2, "Three conventions") -----------------
+# Opt-in: the expressions' own ``evaluate`` is convention G, untouched. Defined on the atomic predicates (the one
+# comparison of Cmp, the equality of Same, the ``> 0.5`` of Colour, the two comparisons of Pattern and of Cell).
+# G: an atomic predicate with a missing operand is false. M: it is true. P: it is missing, and so is every node
+# with a missing operand (Logic, the ``&`` inside Pattern and Cell, WSum, the output); no Kleene logic. Under P a
+# binary node gives floats (1.0, 0.0, NaN); under M booleans. Value nodes propagate NaN as they always do.
+
+CONVENTIONS: tuple[str, ...] = ("G", "M", "P")
+
+
+def evaluate_under(expr: Any, view: Any, convention: str = "G") -> Any:
+    """``expr`` on ``view`` under a convention; ``G`` is ``expr.evaluate(view)`` itself."""
+    if convention == "G":
+        return expr.evaluate(view)
+    if convention not in CONVENTIONS:
+        raise ValueError(f"unknown convention {convention!r}; expected one of {CONVENTIONS}")
+    return _under(expr, view, convention)
+
+
+def _atom(value: np.ndarray, missing: np.ndarray, convention: str) -> np.ndarray:
+    if convention == "M":
+        return value | missing
+    return np.where(missing, np.nan, value.astype(np.float64))
+
+
+def _strict_and(parts: Sequence[tuple[np.ndarray, np.ndarray]], convention: str) -> np.ndarray:
+    """The ``&`` inside Pattern and Cell: on M's booleans as coded; on P missing wherever an operand is."""
+    if convention == "M":
+        out = parts[0][0] | parts[0][1]
+        for value, missing in parts[1:]:
+            out = out & (value | missing)
+        return out
+    value = np.logical_and.reduce([v for v, _ in parts])
+    missing = np.logical_or.reduce([m for _, m in parts])
+    return np.where(missing, np.nan, value.astype(np.float64))
+
+
+def _under(e: Any, view: Any, c: str) -> Any:
+    if isinstance(e, Cmp):
+        a, b = _under(e.lhs, view, c), _under(e.rhs, view, c)
+        with np.errstate(invalid="ignore"):
+            value = a > e.margin * b if e.op == ">" else a < e.margin * b
+        return _atom(np.asarray(value), np.isnan(a) | np.isnan(b), c)
+    if isinstance(e, Same):
+        x, y = view.at("green", e.o), view.at("green", e.r)
+        return _atom(x == y, np.isnan(x) | np.isnan(y), c)
+    if isinstance(e, Colour):
+        x = view.at(e.colour, e.o)
+        with np.errstate(invalid="ignore"):
+            return _atom(x > 0.5, np.isnan(x), c)
+    if isinstance(e, Pattern):
+        body, up, lo = (view.at(q, e.o) for q in ("body", "upper_wick", "lower_wick"))
+        long_, short = (lo, up) if e.kind == "hammer" else (up, lo)
+        with np.errstate(invalid="ignore"):
+            first, second = long_ >= e.a * body, short <= body
+        return _strict_and([(first, np.isnan(long_) | np.isnan(body)), (second, np.isnan(short) | np.isnan(body))], c)
+    if isinstance(e, Cell):
+        body, colour = view.at("body", e.o), view.at(e.colour, e.o)
+        with np.errstate(invalid="ignore"):
+            sized = body < e.c if e.size == "small" else body > e.c
+            coloured = colour > 0.5
+        return _strict_and([(coloured, np.isnan(colour)), (sized, np.isnan(body))], c)
+    if isinstance(e, Logic):
+        x, y = _under(e.a, view, c), _under(e.b, view, c)
+        op = {"AND": np.logical_and, "OR": np.logical_or, "XOR": np.logical_xor}[e.op]
+        if c == "M":
+            return op(x, y)
+        return np.where(np.isnan(x) | np.isnan(y), np.nan, op(x == 1.0, y == 1.0).astype(np.float64))
+    if isinstance(e, WSum):
+        x, y = (np.asarray(_under(p, view, c), dtype=np.float64) for p in (e.a, e.b))
+        return e.w1 * x + e.w2 * y
+    if isinstance(e, LogRatio):
+        x, y = _under(e.a, view, c), _under(e.b, view, c)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return np.where((x > 0) & (y > 0), np.log(x / y), np.nan)
+    if isinstance(e, Rel):
+        x, y = _under(e.a, view, c), _under(e.b, view, c)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return x / y - 1.0
+    if isinstance(e, Raw):
+        return _under(e.a, view, c)
+    if isinstance(e, (At, Agg, TrailMean, Const)):
+        return e.evaluate(view)
+    own = getattr(e, "evaluate_under", None)  # a node defined elsewhere (the controls of bench.detectors)
+    if own is not None:
+        return own(view, c)
+    if not e.binary:
+        return e.evaluate(view)
+    raise TypeError(f"no convention rule for the binary node {type(e).__name__}")
+
+
+def outputs_under(leak: Leak, view: Any, convention: str = "G") -> dict[str, np.ndarray]:
+    """:meth:`Leak.outputs` under a convention; ``G`` is ``leak.outputs(view)`` itself, bit for bit."""
+    if convention == "G":
+        return leak.outputs(view)
+    return leak.outputs_of(evaluate_under(leak.expr, view, convention))
 
 
 # --- The generator ---------------------------------------------------------------------------
@@ -752,8 +944,24 @@ def _margin_position(m: float) -> str:
     return "inside" if 1.0 / PUSH <= m <= PUSH else "outside"
 
 
-def _threshold(rng: np.random.Generator, q: str) -> tuple[float, str]:
-    """A threshold for ``q`` and its position: inside H1's band (probability 0.5), else below or above it."""
+def _threshold(rng: np.random.Generator, q: str, place: Placement | None = None) -> tuple[float, str]:
+    """A threshold for ``q`` and its position: inside H1's band (probability 0.5), else below or above it.
+
+    Under the ``quantile`` placement (``place.table`` set; ``docs/PROTOCOL.md``, iteration 5, §1.3) it is
+    instead the linear quantile of the pre-2019 values of ``q`` at one level drawn uniformly on
+    :data:`QUANTILE_LEVELS`: exactly one draw. The ``h1-bands`` path below is the generator of iteration 3,
+    draw for draw.
+    """
+    if place is not None:
+        place.calls += 1
+        if place.table is not None:
+            level = rng.uniform(*QUANTILE_LEVELS)
+            c = float(np.quantile(place.table[q], level, method="linear"))
+            if q in SHARES:
+                return c, "window-dependent"
+            if q == "wick_ratio":
+                return c, "none"
+            return c, _band_position(q, c)
     if q in SHARES:
         return float(rng.uniform(0.05, 0.95)), "window-dependent"
     if q == "wick_ratio":
@@ -781,7 +989,7 @@ def _yes(flag: bool) -> str:
     return "yes" if flag else "no"
 
 
-def _draw_levels(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
+def _draw_levels(rng: np.random.Generator, place: Placement | None = None) -> tuple[Any, dict[str, str]]:
     q, j, op, m = _pick(rng, LEVELS), _future(rng), _op(rng), _margin(rng)
     if rng.random() < 0.75:
         k = _past(rng)
@@ -802,7 +1010,7 @@ def _designed_vs_past(q: str, j: int, k: int, m: float) -> bool:
     return q in PUSHED_VS_WINDOW and k <= WINDOW
 
 
-def _draw_ratios(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
+def _draw_ratios(rng: np.random.Generator, place: Placement | None = None) -> tuple[Any, dict[str, str]]:
     q, j, op = _pick(rng, RATIOS), _future(rng), _op(rng)
     if rng.random() < 0.55 or q == "trade_size":
         k, m = _past(rng), _margin(rng)
@@ -815,7 +1023,7 @@ def _draw_ratios(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
         return Cmp(At(q, j), op, m, At("close", -k)), _tags(
             quantity=q, operation="vs-past-close", offset=_s(j), reference=_past_label(k), position=_margin_position(m), designed="no"
         )
-    c, pos = _threshold(rng, q)
+    c, pos = _threshold(rng, q, place)
     return Cmp(At(q, j), op, 1.0, Const(c)), _tags(
         quantity=q, operation="threshold", offset=_s(j), reference="threshold", position=pos, designed=_yes(j == 1 and pos == "inside")
     )
@@ -825,11 +1033,11 @@ SHAPE_KINDS = ("fill-threshold", "clv-threshold", "fill-vs-past", "clv-vs-past",
                "wick-ratio-threshold", "wick-ratio-vs-past", "hammer", "star", "cell")  # fmt: skip
 
 
-def _draw_shapes(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
+def _draw_shapes(rng: np.random.Generator, place: Placement | None = None) -> tuple[Any, dict[str, str]]:
     kind, j = _pick(rng, SHAPE_KINDS), _future(rng)
     if kind in ("fill-threshold", "clv-threshold", "wick-ratio-threshold"):
         q = {"fill-threshold": "fill", "clv-threshold": "close_location", "wick-ratio-threshold": "wick_ratio"}[kind]
-        c, pos = _threshold(rng, q)
+        c, pos = _threshold(rng, q, place)
         return Cmp(At(q, j), _op(rng), 1.0, Const(c)), _tags(
             quantity=q, operation="threshold", offset=_s(j), reference="threshold", position=pos,
             designed=_yes(j == 1 and pos == "inside" and q != "wick_ratio"),
@@ -858,14 +1066,14 @@ def _draw_shapes(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
     if rng.random() < 0.5:
         c, pos = SMALL_BODY, _band_position("body", SMALL_BODY)
     else:
-        c, pos = _threshold(rng, "body")
+        c, pos = _threshold(rng, "body", place)
     return Cell(colour, size, j, c), _tags(
         quantity="colour and body", operation=f"{colour}-and-{size}", offset=_s(j), reference="threshold", position=pos,
         designed="cell" if j == 1 and pos == "inside" else "no",
     )  # fmt: skip
 
 
-def _draw_aggregates(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
+def _draw_aggregates(rng: np.random.Generator, place: Placement | None = None) -> tuple[Any, dict[str, str]]:
     q, op, m, k, cmp, margin = _pick(rng, (*LEVELS, *RATIOS)), _pick(rng, AGG_OPS), int(_pick(rng, AGG_LENGTHS)), _past(rng), _op(rng), _margin(rng)
     lhs = Agg(q, op, 1, m)
     if rng.random() < 0.5:
@@ -880,7 +1088,7 @@ def _draw_aggregates(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
 CONTINUOUS_KINDS = ("log-ratio", "over-trailing-mean", "value", "aggregate-log-ratio")
 
 
-def _draw_continuous(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
+def _draw_continuous(rng: np.random.Generator, place: Placement | None = None) -> tuple[Any, dict[str, str]]:
     kind, j = _pick(rng, CONTINUOUS_KINDS), _future(rng)
     if kind == "log-ratio":
         q, k = _pick(rng, (*LEVELS, *SCALED_RATIOS)), _past(rng)
@@ -899,7 +1107,7 @@ def _draw_continuous(rng: np.random.Generator) -> tuple[Any, dict[str, str]]:
                                                             reference="bar s", position="none", designed="no")  # fmt: skip
 
 
-DRAW: dict[str, Callable[[np.random.Generator], tuple[Any, dict[str, str]]]] = {
+DRAW: dict[str, Callable[..., tuple[Any, dict[str, str]]]] = {
     "levels": _draw_levels,
     "ratios": _draw_ratios,
     "shapes": _draw_shapes,
@@ -909,14 +1117,14 @@ DRAW: dict[str, Callable[[np.random.Generator], tuple[Any, dict[str, str]]]] = {
 COMBINATION_OPS = ("AND", "OR", "XOR", "WSUM")
 
 
-def _draw_combination(rng: np.random.Generator) -> tuple[Any, dict[str, str], str]:
+def _draw_combination(rng: np.random.Generator, place: Placement | None = None) -> tuple[Any, dict[str, str], str]:
     op = _pick(rng, COMBINATION_OPS)
     pool = FAMILIES[:4] if op != "WSUM" else FAMILIES[:5]
     weights = FAMILY_WEIGHTS[: len(pool)]
     parts = []
     for _ in range(2):
         fam = _pick(rng, pool, weights)
-        parts.append((fam, *DRAW[fam](rng)))
+        parts.append((fam, *DRAW[fam](rng, place)))
     (fa, a, _), (fb, b, _) = parts
     offsets = a.offsets() | b.offsets()
     tags = _tags(quantity="two leaks", operation=op, offset=_s(max(offsets)), reference=f"{fa} + {fb}", position="combination",
@@ -927,14 +1135,14 @@ def _draw_combination(rng: np.random.Generator) -> tuple[Any, dict[str, str], st
     return Logic(op, a, b), tags, _binary_output(rng)
 
 
-def draw_leak(seed: int, i: int) -> Leak:
-    """Leak ``i`` of the population of ``seed``: drawn from ``default_rng([seed, i])`` alone."""
+def _draw_leak(seed: int, i: int, place: Placement) -> Leak:
+    """Leak ``i`` of ``seed`` under ``place``; ``place.calls`` counts the ``_threshold`` calls of the draw."""
     rng = np.random.default_rng([seed, i])
     family = _pick(rng, FAMILIES, FAMILY_WEIGHTS)
     if family == "combinations":
-        expr, tags, output = _draw_combination(rng)
+        expr, tags, output = _draw_combination(rng, place)
     else:
-        expr, tags = DRAW[family](rng)
+        expr, tags = DRAW[family](rng, place)
         if family == "continuous":
             output = "exp_return" if rng.random() < 0.8 else "probs"
             if output == "probs":
@@ -949,9 +1157,23 @@ def draw_leak(seed: int, i: int) -> Leak:
     return leak
 
 
-def generate(n: int, seed: int) -> list[Leak]:
-    """The population: leaks ``0 .. n - 1`` of ``seed`` (see the module docstring)."""
-    return [draw_leak(seed, i) for i in range(n)]
+def draw_leak(seed: int, i: int, *, placement: str = H1_BANDS, table_path: str | Path | None = None) -> Leak:
+    """Leak ``i`` of the population of ``seed``: drawn from ``default_rng([seed, i])`` alone.
+
+    ``placement="quantile"`` needs ``table_path``, the registered quantile table (:func:`load_table`).
+    """
+    return _draw_leak(seed, i, placement_for(placement, table_path))
+
+
+def generate(n: int, seed: int, *, placement: str = H1_BANDS, table_path: str | Path | None = None) -> list[Leak]:
+    """The population: leaks ``0 .. n - 1`` of ``seed`` (see the module docstring).
+
+    ``placement`` is ``"h1-bands"`` (the default: iteration 3's generator, bit for bit) or ``"quantile"``
+    (iteration 5, ``docs/PROTOCOL.md`` §1.3), which needs ``table_path`` and refuses a table whose bytes do not
+    hash to :data:`QUANTILE_TABLE_SHA256`. The placement is not a field of :class:`AdversaryConfig`.
+    """
+    place = placement_for(placement, table_path)
+    return [_draw_leak(seed, i, place) for i in range(n)]
 
 
 # --- The full H1 path: a leak as a baseline --------------------------------------------------

@@ -17,6 +17,16 @@ Read `docs/PROTOCOL.md`'s new section "Leak detectors measured against each othe
 
 `bench/detectors.py`, `bench/casestudy.py`, their tests, and any change to `adversary.py` or `twins.py` from `misses.md`. Check that each detector is the registered one, that the tests would fail on the planted fooling leaks, that the case study's factor signals use past bars only, and that every read goes through the seal.
 
+**Updated 2026-11-18, after the registration (`6044037`).** Pass 5b opens with these checks, in order:
+1. **Diff the registered text against pass 5a-bis.** Compare `docs/PROTOCOL.md`'s section "Leak detectors measured against each other (iteration 5)" and H15 in `docs/HYPOTHESES.md` with `audit-5a-bis-findings.md`: every replacement text of F1 to F7 adopted verbatim, every Minor carried through.
+2. **Read hardest what the orchestrator wrote beyond those verbatim texts:** §3.4 (the list of assertions), §4.14 (the placement-invariant subset), §4.15 (the cut-date bootstrap, seed 20261120), FI's rule on Fonseca's M2, M1's row mask, and §1.7's `table_path`.
+3. **Reproduce the development digest** (§1.7) from the change-log line, on the machine of the official run, and check that the line adds only the digest, the commit and the numpy version.
+4. **Then the code against the registered text,** detector by detector and assertion by assertion (§3.4's list and the equivalence gates), with `.claude/briefs/iteration-5/detectors.md`'s checklist as a map, not as the norm.
+5. **Seeds and contacts:** no test or default executes 20261118, 20261119 or 20261120; no new detector ran on real bars; `casestudy.py` was never called on a real `series.npz`; every caller of `generate`/`draw_leak` threads `placement` and `table_path` or provably keeps the default.
+6. **The stop rule (§7.4)** is enforced by the CLI: no rate or per-leak verdict reaches an output file before every assertion and gate passes.
+
+Verdict: GO, GO with fixes, or NO-GO, with each finding rated Blocker, Major, Minor or Nit, written to `audit-5b-findings.md`.
+
 ## Phase 2 — the results and the paper
 
 Recompute every number of the new rows from the runs' JSON, and every verdict from the registered rules. Read `paper/main.tex` claim by claim against `docs/RESULTS.md`, `paper.md`'s "Never claim" list and the citations' read level. GO, GO with fixes, or NO-GO, with each finding rated Blocker, Major, Minor or Nit.

@@ -215,12 +215,17 @@ def run_output(path: Path) -> Path:
     return real
 
 
-def load_series(path: Path, sha256: str, keys: Sequence[str] = SERIES_KEYS_READ) -> tuple[dict[str, np.ndarray], dict[str, Any], dict[str, Any], str]:
-    """The hourly series of a Report n°2 run, read only if the file's SHA-256 is ``sha256`` and the run's ``report2.json`` says so.
+def load_series(
+    path: Path, sha256: str, keys: Sequence[str] = SERIES_KEYS_READ, *, report_file: str = "report2.json"
+) -> tuple[dict[str, np.ndarray], dict[str, Any], dict[str, Any], str]:
+    """The hourly series of a run, read only if the file's SHA-256 is ``sha256`` and the run's ``report_file`` says so.
 
-    Returns the arrays of ``keys`` (by default those the study reads), the run's ``report2.json`` and
-    ``config.json``, and the SHA-256 of that ``report2.json``. The arrays are read from the very bytes
-    that were hashed, without pickles. This is the one reader of ``series.npz`` in the package.
+    ``report_file`` is the run's JSON report beside the series: ``report2.json`` (the default) for a Report n°2
+    run, ``report3.json`` for a Report n°3 run, whose ``series.npz`` has the same keys and dtypes
+    (``report2.SERIES_KEYS``). Returns the arrays of ``keys`` (by default those the study reads), the run's
+    ``report_file`` and ``config.json``, and the SHA-256 of that ``report_file``. The arrays are read from the
+    very bytes that were hashed, without pickles. This is the one reader of ``series.npz`` in the package, for
+    both reports.
     """
     keys = tuple(dict.fromkeys((*SERIES_KEYS_READ, *keys)))
     path = run_output(Path(path))
@@ -229,15 +234,15 @@ def load_series(path: Path, sha256: str, keys: Sequence[str] = SERIES_KEYS_READ)
     digest = hashlib.sha256(data).hexdigest()
     if digest != want:
         raise SeriesRefused(f"{path}: SHA-256 {digest}, not the {want} given")
-    report_path, config_path = path.parent / "report2.json", path.parent / "config.json"
+    report_path, config_path = path.parent / report_file, path.parent / "config.json"
     if not report_path.is_file() or not config_path.is_file():
-        raise SeriesRefused(f"{path.parent}: no report2.json and config.json beside the series, so its run cannot vouch for it")
+        raise SeriesRefused(f"{path.parent}: no {report_file} and config.json beside the series, so its run cannot vouch for it")
     report_path, config_path = run_output(report_path), run_output(config_path)
     report_bytes = report_path.read_bytes()
     report = json.loads(report_bytes)
     rec = report.get("series")
     if not isinstance(rec, dict) or rec.get("file") != path.name or rec.get("sha256") != digest:
-        raise SeriesRefused(f"{path}: its run's report2.json records {rec!r}, not this file's SHA-256 {digest}")
+        raise SeriesRefused(f"{path}: its run's {report_file} records {rec!r}, not this file's SHA-256 {digest}")
     config = json.loads(config_path.read_bytes())
     # the archive is opened here, from the hashed bytes, and each .npy member read on its own: no pickles, no inner archive
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
