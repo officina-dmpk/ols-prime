@@ -792,7 +792,7 @@ So this iteration measures our detector against its rivals on one open benchmark
 **Next step: arXiv v1.**
 - **Abdou's decisions:** the title, the author name, the category, the licence and the endorser. The endorser is the long-lead item, since an author with no institution needs an established arXiv author of the same domain.
 - **Before submission:** read the first pages of the ten method papers (m9) and the 1983 variance paper (N16). Re-read the cited passages of the sources revised since they were read: 2504.09663, MesaNet and Log-Linear Attention.
-- **Then:** push the branch so that the frozen commits are public, and run GitHub Actions on it.
+- **Then:** push the branch so that the frozen commits are public, and run GitHub Actions on it. Done on 2026-11-19, with Abdou's go-ahead: `iteration-5` was pushed at `76edd6c`, and a pull request to `main` was opened for CI. The merge into `main` waits for green CI and Abdou's go-ahead. GitHub reported that the repository moved to `officina-dmpk/ols-prime`; the old URL redirects.
 
 **Bolder next step.** Only one candidate passes Abdou's bar of 2026-11-19, and it is for a v2, not for v1: the population of realistic pipeline bugs and the labelled corpus of community strategies (see above). "Y % of our generator" is the paper's weakest point, and "X % of real bugs" is the claim practitioners would cite.
 

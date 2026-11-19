@@ -1,15 +1,16 @@
 # Resume 5 — iteration 5 after wave 4, before audit phase 2
 
 - **Written:** 2026-11-19, by the orchestrator of iteration 5's fourth session, after wave 4. Read `resume-4.md` for what came before.
-- **Branch:** `iteration-5`. Nothing is pushed. Never `git add -A`: `.claude/worktrees/` and the two iteration-4 drafts (`outcome-draft.md`, `results-draft.md`) stay untracked on purpose.
+- **Branch:** `iteration-5`, pushed to GitHub on 2026-11-19 (see "Latest state"). Never `git add -A`: `.claude/worktrees/` and the two iteration-4 drafts (`outcome-draft.md`, `results-draft.md`) stay untracked on purpose.
 
 ## Latest state (2026-11-19, end of the session)
 
 - **Steps 2 to 6 below are done or settled.** Minor 3 was deferred, and audit 2a found that the deferral holds. The case study ran once. Audits 2a and 2b both gave GO with fixes. The `docs/RESULTS.md` rows are written, `paper/` is at draft 4 (23 pages), and the outcome is in `docs/ITERATIONS.md`. There is no learning page.
-- **What is left is step 7, the commit,** with Abdou's go-ahead. After it comes arXiv v1, as the outcome's "Next step" lists it:
-  - Abdou's decisions: title, author, category, licence, endorser;
-  - reading the first pages of the ten method papers;
-  - the push, and GitHub Actions.
+- **Committed and pushed.** `76edd6c` is on GitHub, and a pull request `iteration-5` to `main` is open, with Abdou's go-ahead of 2026-11-19. Find it with `gh pr list --repo officina-dmpk/ols-prime`: GitHub reports that the repository moved there from `abdou-rgd`, and the local `origin` still uses the old URL, which redirects.
+- **The next session:**
+  1. If the PR's CI is green, merge it into `main` locally with a merge commit and Abdou's go-ahead, never through GitHub (see the memory on the repository).
+  2. Then prepare arXiv v1, as the outcome's "Next step" in `docs/ITERATIONS.md` lists it: Abdou's decisions (title, author, category, licence, endorser) and the first pages of the ten method papers.
+  3. Start it as a fresh session: this one ended past 370k tokens of context.
 
 ## What this session did
 
