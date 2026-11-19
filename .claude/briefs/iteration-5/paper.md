@@ -17,7 +17,7 @@
 
 ## Never claim
 
-OLS is attention; signed weights; an exact ridge state; the idea of a two-run test; OLS beats softmax; any profit. No result from the vault or the validation year: both are sealed, and iteration 1's exposure of BTCUSDT 1d vault rows is stated.
+OLS is attention; signed weights; an exact ridge state; the idea of a two-run test; OLS beats softmax; any profit. No result from the vault or the validation year: both are sealed, and the exposure of BTCUSDT 1d vault rows is stated (found on 2026-10-28 by Audit A of iteration 2, not in iteration 1: corrected 2026-11-19, audit 2b N10). The validation year is not behind the code seal: each pipeline drops its bars before any computation (audit 2b m4).
 
 ## Must contain
 
@@ -34,3 +34,4 @@ The draft compiles, every number traces to a row of `docs/RESULTS.md` or a run's
 
 - **The first draft is written by a fresh Opus agent,** under `paper-draft-1.md`. The orchestrator reads it, and audit phase 2b reads every claim.
 - **The citation rule, for this draft.** No source in the reading notes is read in full. A source is cited only for a statement found in the parts the notes record as read, with the part named in a comment. A credit that cannot be supported this way is dropped.
+- **Method citations** (2026-11-19). The original paper of a statistical or numerical method (Wilson, Newcombe, McNemar, the stationary bootstrap, HAC, and so on) may be cited for the method's definition alone. Its metadata and its abstract or first page are checked at the publisher by `scout`, and recorded in `reading-methods.md`.

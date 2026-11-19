@@ -598,7 +598,7 @@ So this iteration measures our detector against its rivals on one open benchmark
    - the OLS-minus-softmax gap and Matrix's skill regressed on hourly reversal, momentum and volatility timing (Nagel's control).
 5. **The paper draft.** LaTeX in `paper/`, in English:
    - claims written as `docs/RESULTS.md` records them: H4 as non-inferiority, the 98.0 % as this generator's rate;
-   - every limit stated, the vault sealed and its exposure of iteration 1 recorded;
+   - every limit stated, the vault sealed and its exposure recorded (found on 2026-10-28 by Audit A of iteration 2; "iteration 1" here was corrected on 2026-11-19, audit 2b N10);
    - the AI assistance reported, as arXiv requires.
 
    `leakage-auditor` reads it claim by claim.
@@ -716,3 +716,84 @@ So this iteration measures our detector against its rivals on one open benchmark
       - The classic leak is real and easy to label: forecasting with the realised weather instead of the forecast known the day before. That joins the realistic-bug population above.
       - The regime changes are real, the 2022 energy crisis among them. Matrix's exact readout on any window, with no refit, helps choose the window.
     - **What it would give the paper.** The detectors measured in two domains, not crypto alone.
+
+**Outcome (2026-11-19).** Done, with these exceptions:
+- the paper is a draft that waits for Abdou's decisions;
+- H14 and the other items dropped first were not run;
+- the tests of pass 5b-bis's Minor 3 were deferred;
+- there is no learning page (Abdou dropped it on 2026-11-18);
+- the "Done when" item "every check green, locally and in GitHub Actions" is met only in part: Python ran green at HEAD, but cargo, clippy and Kani were not re-run (no crate changed since `main`), and Actions did not run (nothing pushed).
+
+- **The checks.**
+  - The full Python suite at HEAD on Windows: 1,743 passed, 5 skipped (23 min 34 s), at `d72f595` with this record in progress; the same count as at the frozen commit.
+  - No file under `python/olsprime/` has changed since the frozen commit `b71ba65` (code digest `3b59007a…`), and no crate since `main` at `0e582bb`. So the Rust checks and Kani's proven harnesses of iteration 4 still apply; they were not re-run.
+  - GitHub Actions did not run: nothing past the registration commit `6044037` is pushed.
+- **The audits.**
+  - **On the design:** 5a and 5a-bis, on the pre-registration, before any detector touched a leak.
+  - **On the code:** 5b, then 5b-bis on the fix wave's diff, before the frozen commit was named.
+  - **Phase 2:**
+    - 2a recomputed 2,804 numbers from the per-leak files: 2,795 agree, and the other 9 differ only by a clipped interval. GO with fixes: 5 Minor, 8 Nits.
+    - 2b read the paper claim by claim: 748 of 748 macros agree. GO with fixes: 2 Major, 11 Minor, 21 Nits.
+  - Every finding is fixed or logged in `docs/PROTOCOL.md`.
+- **Contacts with the real data:**
+  - wave 4: the platform digest, §1.3's replay, the descriptive run, the confirmatory run (the first and only draw of seed 20261118) and its identity rerun;
+  - the case study's one call.
+
+  Each is logged in `docs/PROTOCOL.md` with its times and the SHA-256 of every output.
+- **H15: the prior fails.**
+  - **The deciding cell:** truncation at the cut catches 94.82 % [94.37, 95.24] of the 10,000 fresh leaks, and future invariance 98.57 % [98.32, 98.78]. The difference is −3.75 points [−4.20, −3.32]: below FI, by more than 1 point.
+  - **That cell is one run of truncation against FI's two runs, on all leaks, under convention G.** Beside it, deciding nothing:
+    - at one run each, truncation is 1.24 points above FI's ×3 run alone and 1.46 points below its ÷3 run alone;
+    - on the leaks that are not constant, the difference is −1.08 [−1.32, −0.87], and the 1-point margin is not resolved;
+    - under convention P, truncation catches every leak.
+  - **The cut-date bootstrap makes the verdict date-dependent by the registered rule:** percentiles −6.38 and −2.95. The two labels are the same in 2,000 of 2,000 subsets.
+- **The rates.**
+  - FI 98.57 %, SHUFFLE 98.47 %, RETILE 95.09 % at its 28 ends, TRUNC-0 94.82 %.
+  - TWO-RUN with 2 runs: 85.60 % at σ 0.1 and 97.40 % at σ 1.0. Audit 2b showed that FI's 13-point lead over TWO-RUN is a property of σ 0.1: at one run each, σ 1.0 is above FI's ×3 run alone.
+  - The union of the detectors catches 99.54 %. Its 46 misses are all constant at the compared rows.
+  - No honest twin was flagged by any detector.
+- **The descriptive run** (seed 20261029, a population seen before): −5.53 points [−6.06, −5.02], with the same labels. It gives iteration 3's FI verdicts and iteration 4's twin counts again, leak by leak.
+- **The case study** (exploratory, test months).
+  - The 0.013 Brier skill is skill on "move or no move". `matrix-select`'s direction skill is below climatology, and the encoders' is not separated from 0.
+  - The factor control is an attribution after the fact. The payoffs of reversal, momentum and volatility-timed momentum account for almost none of the mean differences, although `matrix-select`'s difference co-moves with the momentum payoffs (R² 0.12).
+- **The paper:** `paper/`, draft 4, 23 pages. Audit 2b read draft 3; draft 4 is its fixes, which the orchestrator checked (the writer's 48-phrase checklist re-run, the new macros compared with the audits' cells, the abstract read and tightened to 1,910 characters). Draft 4 was not audited again.
+  - Every number is a macro that `paper/make_numbers.py` generates from `docs/RESULTS.md`, the registered text, the runs' JSON or the audits' outputs, and names its source.
+  - Every citation rests on a part its reading note records as read. Ten method papers are cited from their metadata only, with a `\todo` to read their first pages.
+  - **Open, and Abdou's:** the title (still a draft), the author name, the arXiv category, the licence (CC BY-NC-SA 4.0 is what the Binance Vision terms impose), the endorser and the repository URL.
+- **Not run:**
+  - H14;
+  - the rebuilt timing stage and H13's re-measure;
+  - LFM3's ablations, H6 and its seed-split control;
+  - the first `explain head` calls;
+  - H1's extreme-shape cut;
+  - the power study's second run;
+  - H7 and H8, registered on 2026-10-25 and never run;
+  - Minor 3's 21-mutant tests, deferred under Abdou's rule. Audit 2a checked the five lines instead.
+- **A rule changed on 2026-11-19 (Abdou).** To reach the paper sooner, a bolder step is proposed only when it would significantly improve the work (`CLAUDE.md`).
+
+| Part | Result | Briefs |
+|---|---|---|
+| Reading | Fonseca, freqtrade, Causify, the credits, Binance's terms, and the method papers. Every source was read in part; the method papers' metadata was checked. | `reading*.md` |
+| Pre-registration | H15, the detectors, the conventions, the denominators and the stop rule. Committed at `6044037` and pushed before any run. | `prereg.md`, `audit-5a*-findings.md` |
+| Detector benchmark | `olsprime.bench.detectors`, frozen at `b71ba65`. Wave 4 ran through `wave4.py`, 15:17–15:59 UTC. | `detectors.md`, `fixes.md`, `audit-5b*-findings.md` |
+| Case study | `olsprime.bench.casestudy`, one call, 19:42–19:44 UTC. | `case-study.md` |
+| Phase 2 | 2a on the numbers, 2b on the paper. | `audit-2a.md`, `audit-2b.md` and their findings |
+| Paper | Draft 4, written by an Opus agent under the orchestrator's briefs. | `paper.md`, `paper-draft-1.md` |
+
+**Lessons.**
+- **Every number can be right and the paper still wrong.** Both of audit 2b's Majors were framing in our detector's favour: a claim that no measurement existed, and a rival shown only at its weaker setting. Recomputing numbers does not find either; reading the claims does.
+- **A detector's rate belongs to its settings.** The run count, the noise scale and the reading of a missing value each move the ranking by more than the margin. The paper now reports the measurement with its settings, not a winner.
+- **Check a claim about a log against what the logger writes.** The orchestrator wrote "the stderr holds no warning" after looking for Python warnings. Each detector step had written 26,700 expected warning-level log lines.
+- **A brief can contradict the record.** The paper's brief dated the vault's exposure to iteration 1. The protocol dates it to 2026-10-28, in iteration 2. The record wins, and the brief was corrected.
+- **Process.**
+  - Splitting phase 2 in two let the numbers be audited while the paper was drafted.
+  - Resuming the same writer agent for each round kept its knowledge of `main.tex`.
+
+**Next step: arXiv v1.**
+- **Abdou's decisions:** the title, the author name, the category, the licence and the endorser. The endorser is the long-lead item, since an author with no institution needs an established arXiv author of the same domain.
+- **Before submission:** read the first pages of the ten method papers (m9) and the 1983 variance paper (N16). Re-read the cited passages of the sources revised since they were read: 2504.09663, MesaNet and Log-Linear Attention.
+- **Then:** push the branch so that the frozen commits are public, and run GitHub Actions on it.
+
+**Bolder next step.** Only one candidate passes Abdou's bar of 2026-11-19, and it is for a v2, not for v1: the population of realistic pipeline bugs and the labelled corpus of community strategies (see above). "Y % of our generator" is the paper's weakest point, and "X % of real bugs" is the claim practitioners would cite.
+
+**Learning page.** None this iteration: Abdou dropped it on 2026-11-18.

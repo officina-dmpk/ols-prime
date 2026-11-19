@@ -75,7 +75,7 @@ For any period R, this gives:
 - the exact signed contribution of any sub-period, down to a single day;
 - a one-line summary of the period: its own regression `β_R`, its mean outcome and its residual variance.
 
-This is OptMem's idea — an append-only log with a binary tree of summaries built over it — with summaries that are exact instead of written by a model. Unlike OptMem, nothing is compacted away.
+This is OptMem's idea — an append-only log with a binary tree of summaries built over it — with summaries that are exact instead of written by a model. Like OptMem, Matrix keeps the raw log; the difference is that its summaries are regression sufficient statistics, while OptMem's are written by a language model and lossy (corrected 2026-11-19, `.claude/briefs/iteration-5/reading-methods.md`).
 
 **Causality.** A decision taken at t over horizon h has an outcome known only at t + h. The entry joins Matrix then, never before.
 
@@ -265,7 +265,7 @@ Two timescales follow: Matrix and the readout weights at every bar, gradient-fre
   - §5 makes label smoothing an ablation and recalibrates the rule's probabilities inside the fold.
   - §7 adds the adaptation loops, after a second review, on self-improvement. They are registered as H10–H12.
 - 2026-10-28: after Audit B of iteration 2.
-  - §3 says that the raw entries stay in the log. Unlike OptMem's, Matrix's tree compacts nothing away.
+  - §3 says that the raw entries stay in the log, as OptMem's do too; Matrix's summaries are sufficient statistics where OptMem's are written by a model (corrected 2026-11-19).
   - §4 states the row sum under `λI` exactly: `1 − λ·e₀ᵀ(KᵀK + λI)⁻¹q`.
   - §7 limits the closed form for GCV to `Λ = λI`, or to centred statistics.
 - 2026-10-29: iteration 3 builds the centred core.

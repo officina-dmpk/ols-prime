@@ -16,13 +16,26 @@ the numbers, as the record prints them (no re-rounding). Any miss or ambiguity s
 a non-zero exit, and ``numbers.tex`` is not written. Each ``\\newcommand`` carries a comment naming
 its file, its line, its row or anchor, the pattern and the raw text it matched.
 
-Wave 4's rates, H15's verdict and the case study's two analyses are NOT read here: they wait for
-audit phase 2a (``.claude/briefs/iteration-5/audit-2a.md``). This script opens nothing under
-``runs/``. It reads no bar and imports nothing from ``olsprime``.
+Since audit phase 2a (``.claude/briefs/iteration-5/audit-2a-findings.md``, GO with fixes), it
+also reads, by JSON path, the outputs that audit recomputed, and nothing else under ``runs/``:
+
+- ``runs/2026-11-19-detectors-confirmatory/detectors.json`` (seed 20261118, deciding);
+- ``runs/2026-11-19-detectors-descriptive/detectors.json`` (seed 20261029, descriptive);
+- ``runs/2026-11-19-casestudy/casestudy.json`` (exploratory, test months);
+- the audit's two tables, ``audit-2a-scripts/table-confirmatory.tsv`` and
+  ``table-descriptive.tsv``, for the numbers the auditor computed from ``verdicts.jsonl`` alone
+  ("mine only": not registered, never deciding), by the exact text of their first column;
+- lines of ``audit-2a-findings.md`` itself, by anchor and pattern, for the "mine only" numbers that
+  are in its text and not in its tables (the FI-divided-by-3 pair, the 64-date gap).
+
+A JSON value is formatted for print (a share as a percentage, a difference as points, both to two
+decimals unless named); the comment keeps the raw value. A path under ``runs/vault`` is refused.
+The script reads no bar and imports nothing from ``olsprime``.
 """
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -480,6 +493,379 @@ SPEC: list[tuple[tuple[str, ...], tuple, str, object]] = [
 ]
 
 
+FINDINGS = ROOT / ".claude" / "briefs" / "iteration-5" / "audit-2a-findings.md"
+FINDINGS_2B = ROOT / ".claude" / "briefs" / "iteration-5" / "audit-2b-findings.md"
+AUDIT_SCRIPTS = FINDINGS.parent / "audit-2a-scripts"
+RUN_FILES = {
+    "conf": ROOT / "runs" / "2026-11-19-detectors-confirmatory" / "detectors.json",
+    "desc": ROOT / "runs" / "2026-11-19-detectors-descriptive" / "detectors.json",
+    "case": ROOT / "runs" / "2026-11-19-casestudy" / "casestudy.json",
+}
+TABLE_FILES = {
+    "conf": AUDIT_SCRIPTS / "table-confirmatory.tsv",
+    "desc": AUDIT_SCRIPTS / "table-descriptive.tsv",
+}
+EXPLO = " (exploratory, test months)"  # the suffix of every top-level key of casestudy.json
+
+# Regex sources in the audit's findings text (kind "A").
+A_DOWN = ("A", "FI ÷3 alone minus TRUNC-0, mine only")
+A_DESC_PAIRS = ("A", "**Descriptive run.** The same pattern")
+A_LABELS = ("A", "**What moves is the size, not the labels.**")
+A_LONG64 = ("A", "**Two facts to put beside it.**")
+A_MNC = ("A", "**But the margin label is not stable.**")
+A_WHERE = ("A", "**Where the gap is.**")
+A_PREV = ("A", "**Convention P reverses the sign by construction:**")
+A_YEAR = ("A", "**No year may be singled out.**")
+P_AFTER2A = ("P", "after audit phase 2a. **Audit 2a (`leakage-auditor`")
+P_STDERR = ("P", "Each detector step's stderr holds")
+P_RECOMP = ("P", "**What was recomputed.** ")
+P_AGREE = ("P", "2,795 agree. The 9 others")
+P_CASE_CHECKS = ("P", "The case study: 382 checks")
+P_W4_LOG = ("P", "**Wave 4's contacts with the real bars**")
+P_W4_REPLAY = ("P", "15:17:44–15:21:02, §1.3's replay.")
+P_W4_DESC = ("P", "15:21:02–15:32:05, the descriptive run")
+P_W4_CONF = ("P", "15:32:05–15:43:01, the confirmatory run.")
+P_W4_RERUN = ("P", "**The identity rerun:** the confirmatory command with")
+P_W4_CONFCMD = ("P", "3. **The confirmatory run:** `python -m olsprime.bench.detectors run")
+
+SPEC_2A: list[tuple[tuple[str, ...], tuple, str, object]] = [
+    (("DownDiff", "DownLo", "DownHi", "DownB", "DownC"), A_DOWN,
+     r"\(the run does not write this pair\): " + N + r" points \[" + N + r", " + N + r"\], b = (\d+), c = (\d+)\.",
+     "num"),
+    (("DUpDiff", "DUpLo", "DUpHi", "DDownDiff", "DDownLo", "DDownHi"), A_DESC_PAIRS,
+     r"×3 alone " + N + r" \[" + N + r", " + N + r"\], ÷3 alone " + N + r" \[" + N + r", " + N + r"\] \(mine only\)",
+     "num"),
+    (("LabelsSame", "LabelsOf", "SmallestGap", "DSmallestGap"), A_LABELS,
+     r"in " + T + r" of " + T + r", in both runs\. The smallest gap of any subset is " + N
+     + r" points \(descriptive: " + N + r"\)", "num"),
+    (("LongDates", "LongCuts", "LongDiff", "LongLo", "LongHi", "HoneDiffAgain", "HoneDatesAgain"), A_LONG64,
+     r"On all (\d+) dates \((\d+) cuts\) TRUNC-0 minus FI is " + N + r" points \[" + N + r", " + N
+     + r"\], mine only, against " + N + r" on H1's (\d+) dates", "num"),
+    (("MNcDiff", "MNcLo", "MNcHi"), A_MNC, r"Under M on the not-constant leaks it is " + N + r" \[" + N + r", " + N + r"\]",
+     "num"),
+    (("ConstLeaks", "ConstFI", "ConstTz", "ConstShare", "NetGap"), A_WHERE,
+     r"Of the (\d+) leaks constant at H1's compared rows, FI catches (\d+) and TRUNC-0 (\d+): (\d+) of the net (\d+)",
+     "num"),
+    (("PNcDiff", "PNcLo", "PNcHi"), A_PREV, r"On the not-constant leaks: " + N + r" \[" + N + r", " + N + r"\]", "num"),
+    (("SplitIntervals", "SplitArms", "SplitPeriods", "SplitQuantities", "SplitChance"), A_YEAR,
+     r"The split gives (\d+) intervals \((\d+) arms, (\d+) periods, (\d+) quantities\).*?about (\d+) would exclude 0",
+     "num"),
+    (("AtwoaMinor", "AtwoaNit"), P_AFTER2A, r"No Blocker and no Major; (\d+) Minor and (\d+) Nits", "num"),
+    (("MtwoRunsAll",), ("P", "TWO-RUN's M2 class counts take any of"), r"take any of (\d+) runs, both σ", "num"),
+    (("PFloorExp",), ("P", "Underflowed McNemar p-values are written"), r'"p < 10\^-(\d+)"', "num"),
+    (("StderrLines", "StderrFolds", "StderrUnits"), P_STDERR,
+     r"holds " + T + r" log lines .*?expected: (\d+) folds × (\d+) units", "num"),
+    (("RecompNumbers",), P_RECOMP, T + r" numbers of the two detector runs were recomputed", "num"),
+    (("RecompAgree", "RecompOther"), P_AGREE, T + r" agree\. The (\d+) others", "num"),
+    (("CaseChecks", "CaseFailed"), P_CASE_CHECKS, r"The case study: (\d+) checks, (\d+) failed", "num"),
+    (("WlogSha",), P_W4_LOG, r"`runs/2026-11-19-wave4\.log`, SHA-256 `([0-9a-f]{64})`", "hex"),
+    (("WreplaySha",), P_W4_REPLAY, r"`adversary\.json` \(SHA-256 `([0-9a-f]{64})`\)", "hex"),
+    (("WdescJsonSha", "WdescVerdSha"), P_W4_DESC,
+     r"`detectors\.json` `([0-9a-f]{64})`, `verdicts\.jsonl` `([0-9a-f]{64})`", "hex"),
+    (("WconfJsonSha", "WconfMdSha", "WconfVerdSha"), P_W4_CONF,
+     r"`detectors\.json` `([0-9a-f]{64})`, `detectors\.md` `([0-9a-f]{64})`, `verdicts\.jsonl` `([0-9a-f]{64})`",
+     "hex"),
+    (("RerunWorkers",), P_W4_RERUN, r"confirmatory command with `--workers (\d+)`", "num"),
+    (("ConfWorkers",), P_W4_CONFCMD, r"--workers (\d+)`, made only if", "num"),
+    (("CrlfFiles", "LfFiles"), P_CODE_DIGEST, r"CRLF in (\d+) of the \d+ hashed files, LF in (\d+)\)", "num"),
+    (("BHiDiff", "BHiLo", "BHiHi", "BHiB", "BHiC"), ("B", "Confirmatory, FI minus TWO-RUN (σ = 1.0, 2 runs)"),
+     r": " + N + r" points \[" + N + r", " + N + r"\], b = (\d+), c = (\d+)\.", "num"),
+    (("BHiUpDiff", "BHiUpLo", "BHiUpHi", "BHiUpB", "BHiUpC"), ("B", "Confirmatory, FI ×3 alone minus TWO-RUN"),
+     r": " + N + r" points \[" + N + r", " + N + r"\], b = (\d+), c = (\d+)\.", "num"),
+    (("BHiDownDiff", "BHiDownLo", "BHiDownHi", "BHiDownB", "BHiDownC"), ("B", "Confirmatory, FI ÷3 alone minus TWO-RUN"),
+     r": " + N + r" points \[" + N + r", " + N + r"\], b = (\d+), c = (\d+)\.", "num"),
+    (("VariantsBefore", "RepTwoArms"), R_H2, r"\((\d+) before this iteration, plus the (\d+) arms of Report n°2\)", "num"),
+    (("LfDigest", "CrlfDigest"), P_CODE_DIGEST,
+     r"gives `([0-9a-f]{64})`; an all-CRLF Windows clone gives `([0-9a-f]{64})`", "hex"),
+]
+
+
+# --- values read by path (kinds "J": run JSON, "T": the audit's tables) --------------------------
+
+_JSON_CACHE: dict[str, object] = {}
+
+
+def run_json(key: str) -> object:
+    path = RUN_FILES[key]
+    if "vault" in path.parts:
+        raise Missing(f"refused: {path}")
+    if key not in _JSON_CACHE:
+        _JSON_CACHE[key] = json.loads(path.read_text(encoding="utf-8"))
+    return _JSON_CACHE[key]
+
+
+def walk(obj: object, path: tuple, where: str) -> object:
+    for step in path:
+        try:
+            obj = obj[step]  # type: ignore[index]
+        except (KeyError, IndexError, TypeError) as err:
+            raise Missing(f"{where}: no {step!r} ({err})") from err
+    return obj
+
+
+def table_value(key: str, row: str, column: str) -> tuple[object, str]:
+    path = TABLE_FILES[key]
+    found = []
+    for lineno, line in enumerate(lines_of(path), 1):
+        cells = line.split("\t")
+        if cells[0] == row:
+            found.append((lineno, cells))
+    if len(found) != 1:
+        raise Missing(f"{path.name}: row {row!r} found {len(found)} times")
+    lineno, cells = found[0]
+    raw = cells[{"run": 1, "mine": 2}[column]]
+    try:
+        value = json.loads(raw)
+    except ValueError as err:
+        raise Missing(f"{path.name}:{lineno}: column {column} is not JSON: {raw[:60]!r}") from err
+    rel = path.relative_to(ROOT).as_posix()
+    return value, f"{rel}:{lineno}, row '{row}', column '{column}'"
+
+
+def _signed(text: str) -> str:
+    return text.replace("-", "\\textminus{}", 1) if text.startswith("-") else text
+
+
+def v_pct2(x: float) -> str:  # a share as a percentage, two decimals
+    return _signed(f"{100 * float(x):.2f}")
+
+
+def v_pct1(x: float) -> str:
+    return _signed(f"{100 * float(x):.1f}")
+
+
+def v_spts(x: float) -> str:  # a difference of shares, in signed points
+    return _signed(f"{100 * float(x):+.2f}")
+
+
+def v_spts_raw(x: float) -> str:  # already in points, signed
+    return _signed(f"{float(x):+.2f}")
+
+
+def v_abs2(x: float) -> str:  # the size of a value in points, unsigned
+    return f"{abs(float(x)):.2f}"
+
+
+def v_int(x: object) -> str:
+    if isinstance(x, bool) or not isinstance(x, int):
+        raise Missing(f"not an integer: {x!r}")
+    return f"{x:,}"
+
+
+def v_fixed(digits: int, signed: bool = False):
+    def fmt(x: float) -> str:
+        return _signed(f"{float(x):{'+' if signed else ''}.{digits}f}")
+    return fmt
+
+
+P_FLOOR: list[str] = []  # the exponent of N2's floor, read from PROTOCOL.md before any value
+
+
+def v_p(x: float) -> str:
+    """A p-value: an underflow to 0.0 is written below N2's floor (PROTOCOL.md, after audit 2a)."""
+    x = float(x)
+    if x == 0.0:
+        if len(P_FLOOR) != 1:
+            raise Missing("the p-value floor (PFloorExp) was not read")
+        return f"\\ensuremath{{<10^{{-{P_FLOOR[0]}}}}}"
+    if x < 1e-3:
+        mantissa, exponent = f"{x:.1e}".split("e")
+        return f"\\ensuremath{{{mantissa}\\times 10^{{{int(exponent)}}}}}"
+    return f"{x:.2f}"
+
+
+VFORMATS = {
+    "pct2": v_pct2, "pct1": v_pct1, "spts": v_spts, "spts_raw": v_spts_raw, "abs2": v_abs2,
+    "int": v_int, "f2": v_fixed(2), "f2s": v_fixed(2, True), "f3": v_fixed(3), "f4": v_fixed(4), "f4s": v_fixed(4, True),
+    "f5s": v_fixed(5, True), "f6": v_fixed(6), "f6s": v_fixed(6, True), "p": v_p,
+}
+
+VSPEC: list[tuple[str, tuple, str]] = []  # (macro, source, format)
+
+
+def J(name: str, run: str, path: tuple, fmt: str) -> None:
+    VSPEC.append((name, ("J", run, path), fmt))
+
+
+def TT(name: str, run: str, row: str, sub: tuple, fmt: str, column: str = "mine") -> None:
+    VSPEC.append((name, ("T", run, row, column, sub), fmt))
+
+
+DETS = {"FI": "Fi", "FI x3": "FiUp", "FI /3": "FiDown", "TRUNC-0/G": "TzG", "TRUNC-0/M": "TzM",
+        "TRUNC-0/P": "TzP", "TRUNC-1/G": "ToG", "RETILE/G@ends": "RtG", "TWO-RUN": "Tr", "SHUFFLE": "Sh",
+        "TWO-RUN s0.1 r1": "TrOne", "TWO-RUN s0.1 r8": "TrEight", "TWO-RUN s1 r1": "TrHiOne",
+        "TWO-RUN s1 r2": "TrHi", "TWO-RUN s1 r8": "TrHiEight"}
+DENS = {"all": "All", "not-constant": "Nc", "designed-no": "Dn"}
+RUNS = {"conf": "C", "desc": "D"}
+PAIRS = {"FI - TRUNC-0": "FiTz", "FI - TWO-RUN": "FiTr", "FI - SHUFFLE": "FiSh", "TRUNC-0 - TWO-RUN": "TzTr",
+         "TRUNC-0 - SHUFFLE": "TzSh", "TWO-RUN - SHUFFLE": "TrSh",
+         "TRUNC-1/G - TRUNC-0 (one-bar date shift)": "ToTz"}
+EQUAL = {"FI x3 - TRUNC-0": "FiUpTz", "TWO-RUN s0.1 r1 - TRUNC-0": "TrOneTz", "SHUFFLE k1 - TRUNC-0": "ShOneTz",
+         "FI - TWO-RUN s0.1 r2": "FiTrTwo", "FI - SHUFFLE k2": "FiShTwo"}
+
+
+def _newcombe(prefix: str, run: str, path: tuple, with_table: bool = True) -> None:
+    J(prefix + "Diff", run, path + ("difference",), "spts")
+    J(prefix + "Lo", run, path + ("ci95", 0), "spts")
+    J(prefix + "Hi", run, path + ("ci95", 1), "spts")
+    if with_table:
+        J(prefix + "B", run, path + ("table", "b"), "int")
+        J(prefix + "C", run, path + ("table", "c"), "int")
+
+
+for _run, _r in RUNS.items():
+    _m = ("metrics",)
+    for _det, _d in DETS.items():
+        for _den, _n in DENS.items():
+            if _run == "desc" and _den != "all":
+                continue
+            _p = _m + ("detectors", _det, "any_cut", _den)
+            J(f"{_r}{_d}{_n}", _run, _p + ("share",), "pct2")
+            J(f"{_r}{_d}{_n}Lo", _run, _p + ("wilson95", 0), "pct2")
+            J(f"{_r}{_d}{_n}Hi", _run, _p + ("wilson95", 1), "pct2")
+        J(f"{_r}{_d}Count", _run, _m + ("detectors", _det, "any_cut", "all", "count"), "int")
+        J(f"{_r}{_d}Mpc", _run, _m + ("detectors", _det, "mean_per_cut_rate", "all", "mean"), "pct2")
+        if not _det.endswith("/P"):  # audit 2a, N3: no normal interval for P's mean rates
+            J(f"{_r}{_d}MpcLo", _run, _m + ("detectors", _det, "mean_per_cut_rate", "all", "ci95", 0), "pct2")
+            J(f"{_r}{_d}MpcHi", _run, _m + ("detectors", _det, "mean_per_cut_rate", "all", "ci95", 1), "pct2")
+    # H15 and the cells beside it
+    J(f"{_r}HDiff", _run, _m + ("h15", "difference_points"), "spts_raw")
+    J(f"{_r}HLo", _run, _m + ("h15", "ci95_points", 0), "spts_raw")
+    J(f"{_r}HHi", _run, _m + ("h15", "ci95_points", 1), "spts_raw")
+    J(f"{_r}HB", _run, _m + ("h15", "deciding_cell", "table", "b"), "int")
+    J(f"{_r}HC", _run, _m + ("h15", "deciding_cell", "table", "c"), "int")
+    J(f"{_r}HP", _run, _m + ("h15", "deciding_cell", "mcnemar_exact_p"), "p")
+    _newcombe(f"{_r}QM", _run, _m + ("h15", "qualifier", "cells", "convention M"))
+    _newcombe(f"{_r}QNc", _run, _m + ("h15", "qualifier", "cells", "not-constant denominator"))
+    _newcombe(f"{_r}BP", _run, _m + ("h15", "beside", "convention P"))
+    J(f"{_r}MpcDiff", _run, _m + ("h15", "beside", "mean_per_cut_rate_difference", "mean"), "spts")
+    J(f"{_r}MpcDiffLo", _run, _m + ("h15", "beside", "mean_per_cut_rate_difference", "ci95", 0), "spts")
+    J(f"{_r}MpcDiffHi", _run, _m + ("h15", "beside", "mean_per_cut_rate_difference", "ci95", 1), "spts")
+    for _part, _pp in (("invariant", "Inv"), ("complement", "Comp")):
+        _p = _m + ("placement_invariant_subset", _part)
+        J(f"{_r}{_pp}Leaks", _run, _p + ("leaks",), "int")
+        _newcombe(f"{_r}{_pp}", _run, _p + ("TRUNC-0_minus_FI",), with_table=False)
+    J(f"{_r}BootLo", _run, _m + ("cut_date_bootstrap", "percentiles_points", 0), "spts_raw")
+    J(f"{_r}BootHi", _run, _m + ("cut_date_bootstrap", "percentiles_points", 1), "spts_raw")
+    J(f"{_r}BootSpread", _run, _m + ("cut_date_bootstrap", "spread_points"), "f2")
+    J(f"{_r}BootSubsets", _run, _m + ("cut_date_bootstrap", "subsets"), "int")
+    J(f"{_r}BootPer", _run, _m + ("cut_date_bootstrap", "dates_per_subset"), "int")
+    J(f"{_r}BootDates", _run, _m + ("cut_date_bootstrap", "dates"), "int")
+    # union, its misses, the detectors' misses among its catches
+    _u = _m + ("union", "primary")
+    J(f"{_r}Union", _run, _u + ("share",), "pct2")
+    J(f"{_r}UnionLo", _run, _u + ("wilson95", 0), "pct2")
+    J(f"{_r}UnionHi", _run, _u + ("wilson95", 1), "pct2")
+    J(f"{_r}UnionCount", _run, _u + ("count",), "int")
+    J(f"{_r}UnionM", _run, _m + ("union", "under convention M", "share"), "pct2")
+    J(f"{_r}UMiss", _run, _m + ("union_misses", "count"), "int")
+    J(f"{_r}UMissConstH", _run, _m + ("union_misses", "constant_h1_cuts"), "int")
+    J(f"{_r}UMissConstBoth", _run, _m + ("union_misses", "constant_both_schedules"), "int")
+    for _arm, _a in (("long schedule", "Long"), ("sigma 1", "SigOne"), ("RETILE", "Rt"), ("TRUNC-1", "To"),
+                     ("convention M", "M")):
+        J(f"{_r}UMissBy{_a}", _run, _m + ("union_misses", "caught_by_a_secondary_arm", _arm), "int")
+    for _det, _d in (("FI", "Fi"), ("SHUFFLE", "Sh"), ("TRUNC-0", "Tz"), ("TWO-RUN", "Tr")):
+        J(f"{_r}Missed{_d}", _run, _m + ("missed_by_detector_among_union", _det, "count"), "int")
+    # the paired tables
+    for _pair, _pp in PAIRS.items():
+        _p = _m + ("pairs", _pair)
+        J(f"{_r}Pair{_pp}B", _run, _p + ("b",), "int")
+        J(f"{_r}Pair{_pp}C", _run, _p + ("c",), "int")
+        _newcombe(f"{_r}Pair{_pp}", _run, _p + ("newcombe",), with_table=False)
+        J(f"{_r}Pair{_pp}P", _run, _p + ("mcnemar_exact_p",), "p")
+    for _pair, _pp in EQUAL.items():
+        _p = _m + ("equal_run_counts", _pair)
+        J(f"{_r}Eq{_pp}B", _run, _p + ("b",), "int")
+        J(f"{_r}Eq{_pp}C", _run, _p + ("c",), "int")
+        _newcombe(f"{_r}Eq{_pp}", _run, _p + ("newcombe",), with_table=False)
+        J(f"{_r}Eq{_pp}P", _run, _p + ("mcnemar_exact_p",), "p")
+        J(f"{_r}Eq{_pp}Mpc", _run, _p + ("per_cut_rate_difference", "mean"), "spts")
+        J(f"{_r}Eq{_pp}MpcLo", _run, _p + ("per_cut_rate_difference", "ci95", 0), "spts")
+        J(f"{_r}Eq{_pp}MpcHi", _run, _p + ("per_cut_rate_difference", "ci95", 1), "spts")
+    # mirror asymmetry
+    for _det, _d in (("FI", "Fi"), ("TWO-RUN", "Tr"), ("SHUFFLE", "Sh"), ("TRUNC-0", "Tz"), ("TRUNC-1", "To"),
+                     ("RETILE", "Rt")):
+        J(f"{_r}Mir{_d}", _run, _m + ("mirror_asymmetry", _det, "any_cut", "count"), "int")
+        J(f"{_r}Mir{_d}Pct", _run, _m + ("mirror_asymmetry", _det, "any_cut", "share"), "pct2")
+    J(f"{_r}MirLeaks", _run, _m + ("mirror_asymmetry", "FI", "leaks"), "int")
+    # the sensitivity "ignores outputs that turn missing"
+    for _det, _d in (("TRUNC-0/G", "TzG"), ("TRUNC-0/P", "TzP"), ("FI", "Fi"), ("TWO-RUN", "Tr"), ("SHUFFLE", "Sh")):
+        J(f"{_r}Ign{_d}", _run, _m + ("ignores_outputs_that_turn_missing", _det, "all", "share"), "pct2")
+    # the conventions sentence
+    J(f"{_r}ConvX", _run, _m + ("conventions", "sentence", "all", "X"), "pct2")
+    J(f"{_r}ConvY", _run, _m + ("conventions", "sentence", "all", "Y"), "pct2")
+    J(f"{_r}ConvG", _run, _m + ("conventions", "sentence", "all", "G_to_M", 0), "pct2")
+    J(f"{_r}ConvM", _run, _m + ("conventions", "sentence", "all", "G_to_M", 1), "pct2")
+    # population facts
+    J(f"{_r}Distinct", _run, _m + ("descriptive", "distinct_expressions"), "int")
+    J(f"{_r}ConstH", _run, _m + ("descriptive", "constant_h1_cuts", "count"), "int")
+    J(f"{_r}ConstBoth", _run, _m + ("descriptive", "constant_both_schedules", "count"), "int")
+    # reported: twins, classes, TWO-RUN's law, gates
+    J(f"{_r}TwinsEval", _run, ("reported", "honest_twins", "evaluated"), "int")
+    J(f"{_r}TwinsConst", _run, ("reported", "honest_twins", "constant_at_h1_compared_rows", "count"), "int")
+    J(f"{_r}TwinsConstPct", _run, ("reported", "honest_twins", "constant_at_h1_compared_rows", "share"), "pct2")
+    J(f"{_r}MtwoSh", _run, ("reported", "classes", "M2 h1", "SHUFFLE"), "int")
+    J(f"{_r}MtwoTr", _run, ("reported", "classes", "M2 h1", "TWO-RUN"), "int")
+    J(f"{_r}MtwoTrLong", _run, ("reported", "classes", "M2 long", "TWO-RUN"), "int")
+    J(f"{_r}MtwoFi", _run, ("reported", "classes", "M2 FI h1", "predicted_flagged"), "int")
+    J(f"{_r}MtwoFiLong", _run, ("reported", "classes", "M2 FI long", "predicted_flagged"), "int")
+    J(f"{_r}MoneP", _run, ("reported", "classes", "M1 h1 under P", "TRUNC-0/P", "flagged"), "int")
+    J(f"{_r}MonePLong", _run, ("reported", "classes", "M1 long under P", "TRUNC-0/P", "flagged"), "int")
+    _tr = ("reported", "two_run_repair")
+    J(f"{_r}BodyBefore", _run, _tr + ("0.1", "median_body", "before"), "f4")
+    J(f"{_r}BodyAfter", _run, _tr + ("0.1", "median_body", "after"), "f4")
+    J(f"{_r}FillBefore", _run, _tr + ("0.1", "median_fill", "before"), "f2")
+    J(f"{_r}FillAfter", _run, _tr + ("0.1", "median_fill", "after"), "f2")
+    J(f"{_r}VwapClip", _run, _tr + ("0.1", "vwap_clip_binds", "share"), "pct1")
+    J(f"{_r}TakerBase", _run, _tr + ("0.1", "taker_base_cap_binds", "count"), "int")
+    J(f"{_r}TakerQuote", _run, _tr + ("0.1", "taker_quote_cap_binds", "count"), "int")
+    J(f"{_r}BodyAfterHi", _run, _tr + ("1", "median_body", "after"), "f2")
+    J(f"{_r}RepairBars", _run, _tr + ("0.1", "bars"), "int")
+    J(f"{_r}ControlsBuilt", _run, ("reported", "controls", "built"), "int")
+    J(f"{_r}RunsFiDir", _run, ("metrics", "detectors", "FI x3", "runs_per_cut"), "int")
+
+# the audit's own numbers, computed from verdicts.jsonl ("mine only": not registered, never deciding)
+TT("CBootMin", "conf", "cut-date bootstrap: min, median, max of the 2000 differences, points", (0,), "spts_raw")
+TT("CBootMax", "conf", "cut-date bootstrap: min, median, max of the 2000 differences, points", (2,), "spts_raw")
+TT("DBootMin", "desc", "cut-date bootstrap: min, median, max of the 2000 differences, points", (0,), "spts_raw")
+TT("DBootMax", "desc", "cut-date bootstrap: min, median, max of the 2000 differences, points", (2,), "spts_raw")
+TT("CUpperFromMargin", "conf", "distance of the upper limit of the deciding interval from -1 point", (), "abs2")
+
+# the case study (every number here is "exploratory, test months")
+_FC = ("factor_control" + EXPLO,)
+_SS = ("skill_split" + EXPLO, "arms")
+for _diff, _dd in (("matrix-select - climatology-panel", "Ms"), ("enc-ols - enc-softmax", "Eo")):
+    _p = _FC + (_diff,)
+    J(f"Fc{_dd}Mean", "case", _p + ("mean_difference",), "f6s")
+    J(f"Fc{_dd}MeanSe", "case", _p + ("mean_difference_hac_se",), "f6")
+    J(f"Fc{_dd}Intercept", "case", _p + ("intercept",), "f6s")
+    J(f"Fc{_dd}Explained", "case", _p + ("explained",), "f6s")
+    J(f"Fc{_dd}Left", "case", _p + ("share_left",), "pct1")
+    J(f"Fc{_dd}Rsq", "case", _p + ("r2",), "f4")
+    J(f"Fc{_dd}RsqTwo", "case", _p + ("r2",), "f2")
+    J(f"Fc{_dd}Lags", "case", _p + ("hac", "lags"), "int")
+    J(f"Fc{_dd}Hours", "case", _p + ("hours",), "int")
+    for _f, _ff in (("reversal", "Rev"), ("momentum", "Mom"), ("vol_timed_momentum", "Vtm")):
+        J(f"Fc{_dd}{_ff}T", "case", _p + ("coefficients", _f, "t"), "f2s")
+for _arm, _aa in (("matrix-select", "Ms"), ("enc-ols", "Eo"), ("enc-softmax", "Es")):
+    _p = _SS + (_arm, "all")
+    J(f"Sp{_aa}Three", "case", _p + ("three_class", "brier_skill"), "f4")
+    for _part, _pp in (("move", "Move"), ("direction", "Dir")):
+        J(f"Sp{_aa}{_pp}", "case", _p + (_part, "brier_skill", "estimate"), "f4s")
+        J(f"Sp{_aa}{_pp}Lo", "case", _p + (_part, "brier_skill", "low"), "f4s")
+        J(f"Sp{_aa}{_pp}Hi", "case", _p + (_part, "brier_skill", "high"), "f4s")
+        J(f"Sp{_aa}Gain{_pp}", "case", _p + ("log_loss_gain", _part, "estimate"), "f5s")
+        J(f"Sp{_aa}Gain{_pp}Lo", "case", _p + ("log_loss_gain", _part, "low"), "f5s")
+        J(f"Sp{_aa}Gain{_pp}Hi", "case", _p + ("log_loss_gain", _part, "high"), "f5s")
+    J(f"Sp{_aa}GainTotal", "case", _p + ("log_loss_gain", "total"), "f5s")
+J("SpMsDirLl", "case", _SS + ("matrix-select", "all", "direction", "log_loss_skill", "estimate"), "f4s")
+J("SpMsDirLlLo", "case", _SS + ("matrix-select", "all", "direction", "log_loss_skill", "low"), "f4s")
+J("SpMsDirLlHi", "case", _SS + ("matrix-select", "all", "direction", "log_loss_skill", "high"), "f4s")
+J("SpHours", "case", _SS + ("matrix-select", "all", "hours"), "int")
+J("SpDirHours", "case", _SS + ("matrix-select", "all", "direction_hours"), "int")
+J("SpBoot", "case", _SS + ("matrix-select", "all", "move", "brier_skill", "n_boot"), "int")
+
+
 def locate(source: tuple) -> tuple[int, str, str]:
     kind = source[0]
     if kind == "R":
@@ -488,19 +874,36 @@ def locate(source: tuple) -> tuple[int, str, str]:
         return anchored_line(HYPOTHESES, source[1])
     if kind == "P":
         return anchored_line(PROTOCOL, source[1])
+    if kind == "A":
+        return anchored_line(FINDINGS, source[1])
+    if kind == "B":
+        return anchored_line(FINDINGS_2B, source[1])
     raise Missing(f"unknown source kind {kind!r}")
+
+
+def resolve(source: tuple) -> tuple[object, str]:
+    if source[0] == "J":
+        _, run, path = source
+        rel = RUN_FILES[run].relative_to(ROOT).as_posix()
+        where = f"{rel} : " + " / ".join(str(s) for s in path)
+        return walk(run_json(run), path, where), where
+    if source[0] == "T":
+        _, run, row, column, sub = source
+        value, where = table_value(run, row, column)
+        return walk(value, sub, where), where + (f", element {list(sub)}" if sub else "")
+    raise Missing(f"unknown value source {source[0]!r}")
 
 
 def build() -> list[str]:
     seen: set[str] = set()
     out = [
         "% numbers.tex -- GENERATED by paper/make_numbers.py; do not edit by hand.",
-        "% Every macro below is read from the line named in its comment.",
-        "% Wave 4's rates, H15's verdict and the case study's analyses are not here: they wait",
-        "% for audit phase 2a and appear in main.tex as \\todo{after audit 2a}.",
+        "% Every macro below is read from the line, row or JSON path named in its comment.",
+        "% Since audit phase 2a: wave 4's runs and the case study by JSON path; the audit's own",
+        "% numbers ('mine only', computed from verdicts.jsonl, not registered) from its tables and text.",
         "",
     ]
-    for names, source, pattern, formats in SPEC:
+    for names, source, pattern, formats in SPEC + SPEC_2A:
         lineno, text, where = locate(source)
         matches = list(re.finditer(pattern, text))
         if len(matches) != 1:
@@ -520,7 +923,20 @@ def build() -> list[str]:
             seen.add(name)
             value = raw if fmt is None else FORMATS[fmt](raw)
             out.append(f"\\newcommand{{\\Num{name}}}{{{value}}}  % raw: {ascii_only(raw)}")
+            if name == "PFloorExp":
+                P_FLOOR.append(raw)
         out.append("")
+    for name, source, fmt in VSPEC:
+        if not re.fullmatch(r"[A-Za-z]+", name):
+            raise Missing(f"macro name {name!r}: letters only")
+        if name in seen:
+            raise Missing(f"macro {name!r} defined twice")
+        seen.add(name)
+        raw, where = resolve(source)
+        value = VFORMATS[fmt](raw)
+        out.append(f"% {ascii_only(where)}")
+        out.append(f"\\newcommand{{\\Num{name}}}{{{value}}}  % raw: {ascii_only(repr(raw))}")
+    out.append("")
     return out
 
 

@@ -3,6 +3,14 @@
 - **Written:** 2026-11-19, by the orchestrator of iteration 5's fourth session, after wave 4. Read `resume-4.md` for what came before.
 - **Branch:** `iteration-5`. Nothing is pushed. Never `git add -A`: `.claude/worktrees/` and the two iteration-4 drafts (`outcome-draft.md`, `results-draft.md`) stay untracked on purpose.
 
+## Latest state (2026-11-19, end of the session)
+
+- **Steps 2 to 6 below are done or settled.** Minor 3 was deferred, and audit 2a found that the deferral holds. The case study ran once. Audits 2a and 2b both gave GO with fixes. The `docs/RESULTS.md` rows are written, `paper/` is at draft 4 (23 pages), and the outcome is in `docs/ITERATIONS.md`. There is no learning page.
+- **What is left is step 7, the commit,** with Abdou's go-ahead. After it comes arXiv v1, as the outcome's "Next step" lists it:
+  - Abdou's decisions: title, author, category, licence, endorser;
+  - reading the first pages of the ten method papers;
+  - the push, and GitHub Actions.
+
 ## What this session did
 
 1. **Committed wave 3** at `6ab7e3e`. This is the tree pass 5b audited (code digest `8607e7c4…`).
@@ -90,7 +98,8 @@
    - **The paper's first draft exists** in `paper/`, written under `paper-draft-1.md`. It compiles with MiKTeX: 17 pages, `make_numbers.py` regenerates `numbers.tex` byte for byte.
      - Waiting for 2a's numbers: the abstract, §5, §8.4, and parts of §1, §4 and §10.
      - Flagged by its writer: sentences close to "OLS is attention" and "an exact ridge state" (§1, §2, §7, §8.3), and statistical methods named without a citation (no reading note).
-   - **2b, the paper's claims.** It comes once `paper/main.tex` exists.
+   - **2b, the paper's claims.** Launched on 2026-11-19 on draft 3, with the citations placed; brief `audit-2b.md`, findings `audit-2b-findings.md`. If its findings file is missing, it was stopped: launch it again from its brief.
+     - Before that, the `docs/RESULTS.md` rows were written from 2a's tables (five rows dated 2026-11-19), and `reading-methods.md` was saved from the scout's report.
 
    The original step (`leakage-auditor`, `audit.md` "Phase 2"):
    - recompute every number of the new rows from the runs' JSON and `verdicts.jsonl`, and every verdict from the registered rules;
@@ -101,7 +110,7 @@
    - the `docs/RESULTS.md` rows, after phase 2;
    - the outcome and the next step in `docs/ITERATIONS.md` (a bolder one only under `CLAUDE.md`'s rule of 2026-11-19);
    - the paper draft (`paper.md`, `paper/main.tex`: its "Never claim" list, the AI use reported, the endorser still needed).
-6. **The teacher's learning page.** It is in French, published as an Artifact, and kept outside the repository, as decided at iteration 4's wrap-up. Its link goes in the outcome.
+6. **No learning page this iteration.** `docs/ITERATIONS.md` ("Progress (2026-11-18)") records that Abdou dropped it on 2026-11-18. The outcome records it as not done. The line that stood here, from iteration 4's wrap-up, was superseded.
 7. **Commit with Abdou's go-ahead.**
 
 ## Candidate bolder steps (none registered; all skipped on 2026-11-19)

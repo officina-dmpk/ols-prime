@@ -1179,3 +1179,28 @@ Climatology, always flat, buy and hold, moving-average momentum, random position
     - In the case study, the skill lies in "move or no move", and "share left ≈ 1" is not "zero loadings" (Minor 5).
     - Underflowed McNemar p-values are written "p < 10^-300" (N2).
     - P's mean per-cut rates are given without a normal interval (N3).
+- 2026-11-19, after audit phase 2b. **Audit 2b (`leakage-auditor`, `.claude/briefs/iteration-5/audit-2b-findings.md`) gives GO with fixes.** There is no Blocker: 2 Major, 11 Minor and 21 Nits, all text and macros. No number is wrong, and no new contact with the data was needed.
+  - **What it checked.**
+    - The paper's 748 macros (draft 3): all checked, all agree, 352 of them against independently recomputed values.
+    - `numbers.tex` regenerates byte for byte, and the draft compiles.
+    - The five `docs/RESULTS.md` rows of 2026-11-19 agree with audit 2a's tables and `casestudy.json`.
+  - **The two Majors were framing in FI's favour.**
+    - **M1.** The abstract said no measurement of such detectors existed. Yet Fonseca's Table 2, as `reading-papers.md` records it, counts the misses and false alarms of a static checker, a two-run detector and a tiling detector on a small corpus.
+    - **M2.** The paper showed TWO-RUN at σ 0.1 only. The registered σ 1.0 arm catches 96.58 % of the leaks with 1 run, 97.40 % with 2 and 98.45 % with 8. At one run each, it is above FI's ×3 run alone and not separated from its ÷3 run alone.
+      - The auditor's paired cells (B4, computed from `verdicts.jsonl`) are not registered and decide nothing.
+      - FI's 13-point lead over TWO-RUN is a property of σ 0.1.
+  - **Fixed.**
+    - In `paper/`, by its writer, draft 4: every finding on the paper. The orchestrator re-ran the writer's checklist (48 of 48 phrases found), regenerated `numbers.tex` byte for byte, and compiled it with MiKTeX: 23 pages, no undefined reference or citation.
+    - In `docs/RESULTS.md`, the uncommitted rows of 2026-11-19:
+      - the variant count is 21, not 0 (N17);
+      - the σ 1.0 arms and the B4 cells are added to the two detector rows;
+      - H7 and H8, never run since 2026-10-25, are added to the "Not run" row (m2).
+    - The vault exposure's date in `paper.md` and `docs/ITERATIONS.md`: it was found on 2026-10-28 by Audit A of iteration 2, not in iteration 1 (N10).
+  - **The registration's publicity (m5).**
+    - `git ls-remote origin` shows `refs/heads/iteration-5` at `6044037` on GitHub.
+    - The local reflog records its push at 2026-11-18 21:24:29 UTC. That is after the quantile table (20:32) and the commit (21:13), and before any run. GitHub's events list does not show that push.
+    - Commits from `6ab7e3e` on are local only.
+  - **Logged, not fixed:**
+    - **N16.** `docs/DESIGN.md` credits the pairwise variance update to Chan, Golub and LeVeque's 1979 report, and the paper cites their 1983 paper. A read of the 1983 paper's pages is still due.
+    - **N18.** `docs/DESIGN.md`'s OptMem sentence was corrected in place on 2026-11-19, and its §3 still calls Matrix's summaries "exact". That word belongs to the design document; the paper does not use it.
+    - **m9.** Ten method papers are cited from their metadata only. A `\todo` in `paper/main.tex` asks for their first pages to be read before submission.
