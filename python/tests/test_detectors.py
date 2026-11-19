@@ -59,7 +59,7 @@ def _counts(results):
 
 
 def test_the_synthetic_bars_span_the_real_dates_and_hold_every_registered_schedule(benches):
-    for pair, s in benches.schedules.items():
+    for s in benches.schedules.values():
         assert s.bars.height == 2694 and str(s.bars["open_time"][502])[:10] == "2019-01-01"
         assert int(np.flatnonzero(s.scored)[0]) == 502  # the first scored row
         assert sorted(c.index for c in s.h1) == REAL_ROWS  # choose_cuts gives §2's rows on these dates too
@@ -140,7 +140,7 @@ def test_two_runs_repair_keeps_every_registered_property(bars):
     high, _ = det.two_run_bars(b, t, 1.0, z)  # the two sigmas share z: ten times the log-perturbation
     rows = np.arange(t + 1, t + 11)
     for name in ("open", "close"):
-        x0, x1, x2 = (np.log(f[name].to_numpy()[rows] / b[name].to_numpy()[rows]) for f in (b, low, high))
+        _, x1, x2 = (np.log(f[name].to_numpy()[rows] / b[name].to_numpy()[rows]) for f in (b, low, high))
         assert np.allclose(x2, 10 * x1) and np.allclose(x1, 0.1 * z[:, ["open", "high", "low", "close"].index(name)])
     q1 = adv.quantities(low)
     assert np.array_equal(np.isnan(q0["wick_ratio"][rows]), np.isnan(q1["wick_ratio"][rows]))
@@ -418,6 +418,7 @@ def test_a_failing_assertion_stops_the_run_before_any_rate(tmp_path, monkeypatch
     printed = capsys.readouterr()
     result = json.loads((out / "detectors.json").read_text(encoding="utf-8"))
     assert "stopped" in result and "metrics" not in result and "reported" not in result
+    assert not (out / det.VERDICT_FILE).exists()  # M4: the per-leak file only when every check passes
     for text in ((out / "detectors.json").read_text(encoding="utf-8"), (out / "detectors.md").read_text(encoding="utf-8"), printed.out, printed.err):
         assert not re.search(r"\d %", text) and '"share"' not in text and "wilson95" not in text and "ci95" not in text
         assert "Sign:" not in text and "Any-cut share" not in text and "metrics" not in text
@@ -431,19 +432,32 @@ def test_two_runs_give_byte_identical_json(tmp_path, monkeypatch):
         assert det.main([*ARGS[:-1], workers, "--out", str(tmp_path / name)]) == 0
     a, b = ((tmp_path / x / "detectors.json").read_bytes() for x in "ab")
     assert a == b
+    assert (tmp_path / "a" / det.VERDICT_FILE).read_bytes() == (tmp_path / "b" / det.VERDICT_FILE).read_bytes()  # M4
     result = json.loads(a)
     assert result["placement"] == "h1-bands" and result["table_sha256"] is None and result["all_pass"]
+    assert result["platform"] == det.platform_info() == json.loads((tmp_path / "a" / "run.json").read_text(encoding="utf-8"))["platform"]  # M1
+    assert result["platform_pin"]["checked"] is False  # synthetic bars skip the pin
+    assert result["assertions"]["§4.15 the long schedule holds 64 dates, shared by both pairs"]["pass"]  # Minor 11
+    from tests.test_detector_verdicts import assert_recomputed
+
+    assert_recomputed(result["metrics"], (tmp_path / "a" / det.VERDICT_FILE).read_text(encoding="utf-8"))
     assert set(result["metrics"]) >= {"h15", "pairs", "union", "read_split", "mirror_asymmetry", "conventions", "cut_date_bootstrap",
                                       "placement_invariant_subset", "equal_run_counts", "first_m_cuts", "union_misses"}  # fmt: skip
     assert (tmp_path / "a" / "detectors.md").read_bytes() == (tmp_path / "b" / "detectors.md").read_bytes()
 
 
-def test_the_cli_refuses_the_confirmatory_seeds_on_synthetic_bars_and_a_quantile_run_without_its_table(tmp_path):
+def test_the_cli_refuses_the_confirmatory_seeds_on_synthetic_bars_and_a_quantile_run_without_its_table(tmp_path, monkeypatch):
+    def reached(*args, **kwargs):
+        raise AssertionError("a refused command line reached a draw")
+
+    for target, name in ((adv, "_draw_leak"), (det, "run"), (det, "synthetic_pairs")):
+        monkeypatch.setattr(target, name, reached)
     for flag in ("--seed", "--two-run-seed", "--bootstrap-seed"):
-        args = list(ARGS)
-        args[args.index(flag) + 1] = str(min(det.FORBIDDEN_IN_WAVE_3))
-        with pytest.raises(SystemExit):
-            det.main(args)
+        for seed in sorted(det.FORBIDDEN_IN_WAVE_3):  # every confirmatory seed in every slot (pass 5b's nit)
+            args = list(ARGS)
+            args[args.index(flag) + 1] = str(seed)
+            with pytest.raises(SystemExit):
+                det.main(args)
     args = list(ARGS)
     args[args.index("--placement") + 1] = "quantile"
     with pytest.raises(SystemExit):
@@ -456,6 +470,7 @@ def test_the_digest_cli_prints_the_digest_and_numpys_version(capsys):
     assert det.main(["digest", "--seed", "51118", "--placement", "h1-bands", "--n", "50"]) == 0
     out = capsys.readouterr().out
     assert out.startswith(det.development_digest(adv.generate(50, 51118))) and np.__version__ in out
+    assert "portable (12 digits, diagnostic, not registered)" in out  # pass 5b's nit
 
 
 def test_the_seeds_have_no_default():

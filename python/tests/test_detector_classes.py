@@ -6,6 +6,8 @@ wave 3 records the order). Synthetic bars only; development seeds only.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -48,6 +50,28 @@ def test_m1_is_never_flagged_on_its_schedule(benches, schedule):
         assert not v[(key, schedule)].any(), key
 
 
+@pytest.mark.parametrize("schedule", ["h1", "long", "ends"])
+def test_m1_under_p_is_flagged_by_truncation_at_every_cut(benches, schedule):
+    """Pass 5b, Minor 6 (registered after the class tests above): under P the gate's comparison with a missing operand
+    is missing, so the truncation detectors flag M1 at every cut (every end for RETILE), except a cut whose
+    truncation point is the series' last row, which cannot flag; these bars have none."""
+    v = _verdicts(det.class_m1(benches, schedule), benches)
+    keys = ["RETILE/P", "ENDS/P"] if schedule == "ends" else [f"{d}/P" for d in TRUNC_DETECTORS]
+    for key in keys:
+        assert not det.truncation_cannot_flag(benches, key, schedule).any()
+        assert _any_run(v[(key, schedule)]).all(), key
+
+
+def test_a_truncation_point_on_the_series_last_row_cannot_flag():
+    """Structural: from the cut lists (t for TRUNC-0, t + 1 for TRUNC-1, e for ENDS and RETILE), never the flags."""
+    b = SimpleNamespace(trunc=SimpleNamespace(cuts=[{"pair": "X", "at": 5}, {"pair": "X", "at": 9}, {"pair": "X", "at": 9}]),
+                        trunc_parts={"TRUNC-0": np.array([0, 1]), "TRUNC-1": np.array([1, 2]), "ENDS": np.array([0, 2])},
+                        rows=lambda schedule: np.array([0, 1]), schedules={"X": SimpleNamespace(bars=SimpleNamespace(height=10))})  # fmt: skip
+    assert det.truncation_cannot_flag(b, "TRUNC-0/P", "h1").tolist() == [False, True]
+    assert det.truncation_cannot_flag(b, "TRUNC-1/G", "long").tolist() == [True, True]
+    assert det.truncation_cannot_flag(b, "RETILE/P", "ends").tolist() == [False, True]
+
+
 # --- M2: close[s+1] > 2 close[s], and its mirror ------------------------------------------------------------
 
 
@@ -67,10 +91,14 @@ def test_the_mirror_of_m2_swaps_the_two(benches, schedule):
 
 @pytest.mark.parametrize("schedule", ["h1", "long"])
 def test_m2_under_fi_follows_its_registered_rule(bars, benches, schedule):
+    """Three-valued since pass 5b (Minor 5): flagged where the rule says so; elsewhere not predicted, not asserted.
+    The engineered cases, both values of the rule included, are in tests/test_detector_runpath.py."""
     v = _verdicts(det.class_m2(), benches)
     cuts = [benches.cuts[i] for i in benches.rows(schedule)]
-    predicted = np.array([det.fi_m2_rule(bars[c["pair"]], c["index"]) for c in cuts])
-    assert np.array_equal(_any_run(v[("FI", schedule)]), predicted)
+    rule = [det.fi_m2_rule(bars[c["pair"]], c["index"]) for c in cuts]
+    assert set(rule) <= {True, None} and True in rule
+    flagged = _any_run(v[("FI", schedule)])
+    assert all(flagged[j] for j, r in enumerate(rule) if r is True)
 
 
 # --- M3: a future close re-stamped to row s, frozen: "never" for every detector -----------------------------

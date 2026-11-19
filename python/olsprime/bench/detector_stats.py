@@ -44,13 +44,19 @@ MARGIN_POINTS = 1.0  # H15's smallest difference of interest, in points
 
 
 def share(k: int, n: int) -> dict[str, Any]:
+    """``k`` of ``n`` with its Wilson interval; an empty denominator writes ``null`` (never NaN) for the share and interval."""
+    if not n:
+        return {"count": int(k), "n": 0, "share": None, "wilson95": [None, None]}
     lo, hi = wilson(int(k), int(n))
-    return {"count": int(k), "n": int(n), "share": (k / n) if n else math.nan, "wilson95": [lo, hi]}
+    return {"count": int(k), "n": int(n), "share": k / n, "wilson95": [lo, hi]}
 
 
 def mean_rate(rates: np.ndarray) -> dict[str, Any]:
-    """Mean of per-leak rates with a normal 95 % interval over leaks."""
-    return _mean_rate(np.asarray(rates, dtype=np.float64))
+    """Mean of per-leak rates with a normal 95 % interval over leaks; ``null`` mean and interval over no leak."""
+    rates = np.asarray(rates, dtype=np.float64)
+    if rates.size == 0:
+        return {"n_leaks": 0, "mean": None, "ci95": [None, None]}
+    return _mean_rate(rates)
 
 
 def paired_table(x: np.ndarray, y: np.ndarray) -> dict[str, int]:
@@ -68,7 +74,7 @@ def newcombe_paired(a: int, b: int, c: int, d: int, z: float = Z95) -> dict[str,
     """
     n = a + b + c + d
     if n == 0:
-        return {"difference": math.nan, "ci95": [math.nan, math.nan], "n": 0}
+        return {"difference": None, "ci95": [None, None], "n": 0}
     p1, p2 = (a + b) / n, (a + c) / n
     l1, u1 = wilson(a + b, n, z)
     l2, u2 = wilson(a + c, n, z)
@@ -97,7 +103,7 @@ def paired_difference(x: np.ndarray, y: np.ndarray, z: float = Z95) -> dict[str,
     diff = np.asarray(x, dtype=np.float64) - np.asarray(y, dtype=np.float64)
     n = diff.size
     if n == 0:
-        return {"n_leaks": 0, "mean": math.nan, "ci95": [math.nan, math.nan]}
+        return {"n_leaks": 0, "mean": None, "ci95": [None, None]}
     m = float(diff.mean())
     se = float(diff.std(ddof=1) / math.sqrt(n)) if n > 1 else math.nan
     return {"n_leaks": int(n), "mean": m, "ci95": [m - z * se, m + z * se]}
@@ -151,6 +157,7 @@ def h15(deciding: dict[str, Any], qualifiers: dict[str, dict[str, Any]], margin:
     ``qualifiers``: the same difference under convention M and on the not-constant denominator. The verdict is
     "convention-dependent" when one of them has the sign opposite to the deciding cell's point difference with an
     interval that excludes 0. With a deciding point difference of exactly 0 no sign is opposite: no qualifier.
+    Both cells are written back under ``qualifier.cells``, as given (each with its 2x2 table when the caller adds it).
     """
     lo, hi = (100.0 * x for x in deciding["ci95"])
     point = 100.0 * deciding["difference"]
@@ -160,12 +167,14 @@ def h15(deciding: dict[str, Any], qualifiers: dict[str, dict[str, Any]], margin:
                            "prior": _prior(sign, lo, margin)}  # fmt: skip
     triggered = []
     for name, q in qualifiers.items():
+        if q.get("n") == 0:  # an empty cell (no leak in the denominator) cannot trigger the qualifier
+            continue
         qlo, qhi = (100.0 * x for x in q["ci95"])
         qpoint = 100.0 * q["difference"]
         excludes_zero = qlo > 0 or qhi < 0
         if excludes_zero and point != 0 and math.copysign(1.0, qpoint) != math.copysign(1.0, point) and qpoint != 0:
             triggered.append(name)
-    out["qualifier"] = {"triggered_by": triggered, "convention_dependent": bool(triggered)}
+    out["qualifier"] = {"triggered_by": triggered, "convention_dependent": bool(triggered), "cells": dict(qualifiers)}
     out["words"] = "convention-dependent" if triggered else None
     return out
 

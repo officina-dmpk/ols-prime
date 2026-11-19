@@ -32,7 +32,9 @@ Usage::
     uv run --no-sync python -m olsprime.bench.detectors run --seed S --two-run-seed S2 --placement P [--table PATH]
         [--bootstrap-seed B] [--n N] [--workers W] [--out DIR] [--synthetic]
 
-No seed has a default. ``--synthetic`` runs on synthetic bars and refuses the three confirmatory seeds.
+No seed has a default. ``--synthetic`` runs on synthetic bars and refuses the three confirmatory seeds. On real bars
+only the two registered command lines run (:func:`registered_line_refusal`), with ``--table``, and only where the
+development digest reproduces (:func:`check_platform_pin`), checked before any bar is read.
 """
 
 from __future__ import annotations
@@ -65,6 +67,12 @@ FORBIDDEN_IN_WAVE_3: frozenset[int] = frozenset({CONFIRMATORY_POPULATION_SEED, C
 DEVELOPMENT_POPULATION_SEED = 51118
 DEVELOPMENT_TWO_RUN_SEED = 51119
 DESCRIPTIVE_POPULATION_SEED = 20261029
+DESCRIPTIVE_TWO_RUN_SEED = 29119  # the descriptive run's registered line (after pass 5b)
+DESCRIPTIVE_BOOTSTRAP_SEED = 29120
+REGISTERED_N = 10_000
+# §1.7 and pass 5b's ruling 1: seed 51118, n = 10,000, ``quantile``, the registered table, on Windows 11 AMD64,
+# CPython 3.12.10, numpy 2.5.4. A run on real bars refuses unless this digest reproduces (:func:`check_platform_pin`).
+REGISTERED_DEVELOPMENT_DIGEST = "e03f78b187c1f7a7b62681a6c16214f7bd79d7f13b58459521cacb731ad9bc48"
 
 SIGMAS: tuple[float, ...] = (0.1, 1.0)  # TWO-RUN: primary, secondary
 TWO_RUN_RUNS = 8
@@ -106,6 +114,69 @@ def portable_digest(leaks: Sequence[adv.Leak], digits: int = 12) -> str:
     for leak in leaks:
         h.update(_FLOAT.sub(lambda m: format(float(m.group()), f".{digits}g"), digest_line(leak)).encode("utf-8"))
     return h.hexdigest()
+
+
+# --- The platform pin (pass 5b, M1) and the registered command lines (M2) ----------------------------------
+
+
+def platform_info() -> dict[str, str]:
+    """The platform a run is made on: the exact digest of a seed depends on its ``exp`` (§1.7, ruling 1 of pass 5b)."""
+    import platform
+
+    return {"system": platform.system(), "machine": platform.machine(), "python": platform.python_version(), "numpy": np.__version__}
+
+
+class PlatformRefused(RuntimeError):
+    """The development digest does not reproduce here: this is not the platform of the official runs."""
+
+
+def check_platform_pin(table_path: Any, *, expected: str = REGISTERED_DEVELOPMENT_DIGEST, n: int = REGISTERED_N) -> str:
+    """Regenerate seed 51118 under ``quantile`` with the given table; refuse (raise, nothing written) unless the
+    development digest equals ``expected``. Returns the digest. Reads no bar."""
+    leaks = adv.generate(n, DEVELOPMENT_POPULATION_SEED, placement=adv.QUANTILE, table_path=table_path)
+    got = development_digest(leaks)
+    if got != expected:
+        raise PlatformRefused(f"the development digest is {got}, not the registered {expected}, on {platform_info()}: "
+                              "this is not the platform of the official runs; refused before any bar is read")  # fmt: skip
+    return got
+
+
+def registered_line_refusal(args: Any) -> str | None:
+    """The guard on ``run``'s command line (pass 5b, M2), a pure predicate on the parsed arguments: a refusal
+    reason, or None. ``args`` holds ``seed``, ``two_run_seed``, ``placement``, ``bootstrap_seed``, ``n``,
+    ``synthetic`` and ``table``.
+
+    - The confirmatory population seed runs only as the confirmatory line: ``quantile``, the confirmatory TWO-RUN and
+      bootstrap seeds, n = 10,000, real bars. Those two seeds are refused in any other role or combination.
+    - On real bars (§7 after 5b) only two lines exist: that one and the descriptive line, seed 20261029 with
+      ``h1-bands``, TWO-RUN 29119, bootstrap 29120, n = 10,000. Both name ``--table`` (the platform pin needs it).
+    - Synthetic bars take any other seed.
+    """
+    seed, two, boot = args.seed, args.two_run_seed, args.bootstrap_seed
+    confirmatory = (CONFIRMATORY_POPULATION_SEED, adv.QUANTILE, CONFIRMATORY_TWO_RUN_SEED, CONFIRMATORY_BOOTSTRAP_SEED, REGISTERED_N)
+    descriptive = (DESCRIPTIVE_POPULATION_SEED, adv.H1_BANDS, DESCRIPTIVE_TWO_RUN_SEED, DESCRIPTIVE_BOOTSTRAP_SEED, REGISTERED_N)
+    line = (seed, args.placement, two, boot, args.n)
+    if seed == CONFIRMATORY_POPULATION_SEED:
+        if args.synthetic:
+            return "the confirmatory seeds are never run on synthetic bars"
+        if line != confirmatory:
+            return (f"seed {CONFIRMATORY_POPULATION_SEED} runs only as the registered confirmatory line: --placement quantile, "
+                    f"--two-run-seed {CONFIRMATORY_TWO_RUN_SEED}, --bootstrap-seed {CONFIRMATORY_BOOTSTRAP_SEED}, --n {REGISTERED_N}, "
+                    "real bars")  # fmt: skip
+    roles = {"seed": (seed, CONFIRMATORY_POPULATION_SEED), "two-run seed": (two, CONFIRMATORY_TWO_RUN_SEED),
+             "bootstrap seed": (boot, CONFIRMATORY_BOOTSTRAP_SEED)}  # fmt: skip
+    for role, (value, own) in roles.items():
+        if value in FORBIDDEN_IN_WAVE_3 and (value != own or seed != CONFIRMATORY_POPULATION_SEED):
+            return f"{value} is a confirmatory seed: refused as the {role} outside the registered confirmatory line"
+    if args.synthetic:
+        return None
+    if line not in (confirmatory, descriptive):
+        return (f"on real bars only the two registered lines run (§7): the descriptive one (seed {DESCRIPTIVE_POPULATION_SEED}, "
+                f"--placement h1-bands, --two-run-seed {DESCRIPTIVE_TWO_RUN_SEED}, --bootstrap-seed {DESCRIPTIVE_BOOTSTRAP_SEED}, "
+                f"--n {REGISTERED_N}) and the confirmatory one")  # fmt: skip
+    if args.table is None:
+        return "a run on real bars needs --table, the registered quantile table: the platform pin regenerates the development digest"
+    return None
 
 
 # --- Configuration ------------------------------------------------------------------------------------------
@@ -266,6 +337,8 @@ def two_run_bars(bars: pl.DataFrame, t: int, sigma: float, z: np.ndarray) -> tup
     lo2 = np.minimum(o2, c2) * np.exp(-lw2)
     v, qv, tb, tq, tr = (col[k][rows] for k in ("volume", "quote_volume", "taker_buy_base_volume", "taker_buy_quote_volume", "trades"))
     has = v > 0
+    if np.any(~has & ((qv != 0) | (tb != 0) | (tq != 0) | (tr != 0))):  # §2.5: a zero-volume bar keeps its zeros
+        raise RepairFailed("TWO-RUN: a zero-volume bar has a non-zero quote volume, taker volume or trade count")
     with np.errstate(divide="ignore", invalid="ignore"):
         vwap = np.where(has, qv / np.where(has, v, 1.0), np.nan)
     v2 = v * f["volume"]
@@ -281,8 +354,8 @@ def two_run_bars(bars: pl.DataFrame, t: int, sigma: float, z: np.ndarray) -> tup
            "volume": np.where(has, v2, v), "quote_volume": np.where(has, q2, qv),
            "taker_buy_base_volume": np.where(has, tb2, tb), "taker_buy_quote_volume": np.where(has, tq2, tq),
            "trades": np.where(has, tr2, tr)}  # fmt: skip  (a zero-volume bar keeps every volume, taker volume and count)
-    for k in col:
-        col[k][rows] = new[k]
+    for k, values in col.items():
+        values[rows] = new[k]
     out = bars.with_columns([pl.Series(k, np.rint(x).astype(np.int64) if k == "trades" else x, dtype=bars.schema[k]) for k, x in col.items()])
     # Checks (§2.5, item 4).
     q0, q1 = adv.quantities(bars), adv.quantities(out)
@@ -471,7 +544,7 @@ def build_benches(bars_by_pair: dict[str, pl.DataFrame], cfg: DetectorConfig) ->
 
 
 def _part(k: int, n: int) -> dict[str, Any]:
-    return {"count": int(k), "of": int(n), "share": (k / n) if n else math.nan}
+    return {"count": int(k), "of": int(n), "share": (k / n) if n else None}
 
 
 def build_retile(bars_by_pair: dict[str, pl.DataFrame], sched: dict[str, PairSchedule], extras: dict[str, dict[str, np.ndarray]],
@@ -521,6 +594,7 @@ class Rows:
     or_mask: np.ndarray  # (C, 1 + R, W) some read missing, per run (the original first)
     output_missing: np.ndarray  # (C, 1 + R, W) some output missing, per run
     orig_bits: list[np.ndarray]  # per output, (C, W) the original run's values
+    finite_flags: np.ndarray  # (C, R, W) §4.4's sensitivity: some output finite in both runs and moved above 1e-9
 
     @property
     def cut_flags(self) -> np.ndarray:  # (C, R)
@@ -538,6 +612,12 @@ def _moved(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return (change > inv.CAUGHT_ABOVE) | (np.isnan(a) != np.isnan(b))
 
 
+def _moved_finite(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """§4.4's sensitivity, "ignores outputs that turn missing": both outputs finite and a move above 1e-9."""
+    both = np.isfinite(a) & np.isfinite(b)
+    return both & (np.where(both, np.abs(a - b), 0.0) > inv.CAUGHT_ABOVE)
+
+
 def compare(orig_out: Sequence[np.ndarray], run_outs: Sequence[Sequence[np.ndarray]], orig_reads: Sequence[np.ndarray],
             run_reads: Sequence[Sequence[np.ndarray]], scored: np.ndarray) -> Rows:  # fmt: skip
     """Outputs and reads already aligned: original (C, W), each run (C, W); reads as ``isnan`` arrays."""
@@ -545,12 +625,15 @@ def compare(orig_out: Sequence[np.ndarray], run_outs: Sequence[Sequence[np.ndarr
     r = len(run_outs)
     flags = np.zeros((c, r, w), dtype=bool)
     bits = np.zeros((c, r, w), dtype=bool)
+    finite = np.zeros((c, r, w), dtype=bool)
     for j, outs in enumerate(run_outs):
         for a, b in zip(orig_out, outs, strict=True):
             flags[:, j] |= _moved(a, b)
+            finite[:, j] |= _moved_finite(a, b)
             bits[:, j] |= np.ascontiguousarray(a).view(np.uint64) != np.ascontiguousarray(b).view(np.uint64)
     flags &= scored[:, None, :]
     bits &= scored[:, None, :]
+    finite &= scored[:, None, :]
     missing_read = np.zeros((c, r, w), dtype=bool)
     removed = np.zeros((c, r, w), dtype=bool)
     defined = np.ones((c, r, w), dtype=bool)
@@ -569,7 +652,7 @@ def compare(orig_out: Sequence[np.ndarray], run_outs: Sequence[Sequence[np.ndarr
         for j in range(r):
             out_missing[:, 1 + j] |= np.isnan(run_outs[j][k])
     orig_missing = np.logical_and.reduce([np.isnan(a) for a in orig_out]) if orig_out else np.zeros((c, w), bool)
-    return Rows(flags, bits, missing_read, removed, defined, orig_missing, or_mask, out_missing, [np.asarray(a) for a in orig_out])
+    return Rows(flags, bits, missing_read, removed, defined, orig_missing, or_mask, out_missing, [np.asarray(a) for a in orig_out], finite)
 
 
 def _as_blocks(arr: Any, c: int, blocks: int, w: int) -> list[np.ndarray]:
@@ -628,12 +711,15 @@ def judge_all(unit: adv.Leak, b: Benches, conventions: Sequence[str] = CONVENTIO
     return out
 
 
-def cut_verdicts(rows: dict[str, Rows], b: Benches, *, bits: bool = False) -> dict[tuple[str, str], np.ndarray]:
-    """(detector[/convention], schedule) -> (cuts, runs) bool, the cuts in the schedule's order."""
+def cut_verdicts(rows: dict[str, Rows], b: Benches, *, bits: bool = False, finite: bool = False) -> dict[tuple[str, str], np.ndarray]:
+    """(detector[/convention], schedule) -> (cuts, runs) bool, the cuts in the schedule's order.
+
+    ``finite``: under §4.4's sensitivity rule, "ignores outputs that turn missing" (``Rows.finite_flags``).
+    """
     h1, long_ = b.rows("h1"), b.rows("long")
     out: dict[tuple[str, str], np.ndarray] = {}
     for key, r in rows.items():
-        f = r.cut_bits if bits else r.cut_flags
+        f = r.cut_bits if bits else r.finite_flags.any(axis=2) if finite else r.cut_flags
         if key in ("FI", "TWO-RUN"):
             out[(key, "h1")], out[(key, "long")] = f[h1], f[long_]
         elif key == "SHUFFLE":
@@ -799,14 +885,17 @@ def predicted_flags(kind: str, unit: adv.Leak | None, bench: adv.Bench, conventi
     return out
 
 
-def control_can_flag(leak: adv.Leak, bench: adv.Bench) -> bool:
-    """§3.2: ``v`` missing or undefined at some scored compared row in some run of the bench."""
+def control_can_flag(leak: adv.Leak, bench: adv.Bench, cut_rows: np.ndarray | None = None) -> bool:
+    """§3.2: ``v`` missing or undefined at some scored compared row in some run of the bench, at ``cut_rows`` of
+    the bench (H1's 16 cuts in :func:`process_leak`; every cut when None)."""
     found = future_node(leak.expr)
     if found is None:
         return False
     blocks = 1 + len(bench.directions)
     v = np.broadcast_to(np.asarray(found[1].evaluate(bench.view), dtype=np.float64), (bench.n_cuts * blocks, adv.COMPARED))
-    return bool((np.isnan(v) & np.tile(bench.scored, (blocks, 1))).any())
+    live = np.zeros(bench.n_cuts, dtype=bool)
+    live[np.arange(bench.n_cuts) if cut_rows is None else cut_rows] = True
+    return bool((np.isnan(v) & np.tile(bench.scored & live[:, None], (blocks, 1))).any())
 
 
 # --- Fonseca's classes, hand-written on our bars (§3.3) --------------------------------------------------------
@@ -884,16 +973,36 @@ FONSECA_FP_BASES: tuple[adv.Leak, ...] = (
 )
 
 
-def fi_m2_rule(bars: pl.DataFrame, t: int) -> bool:
-    """§3.3, M2 under FI: flagged at a cut unless bar t + 1's high is below two thirds of bar t's close."""
-    return not float(bars["high"][t + 1]) < 2.0 / 3.0 * float(bars["close"][t])
+def fi_m2_rule(bars: pl.DataFrame, t: int) -> bool | None:
+    """§3.3, M2 under FI, three-valued (pass 5b, Minor 5): True ("flagged") at a cut where bar t + 1's high is at
+    least two thirds of bar t's close; None ("not predicted") elsewhere, counted and reported, never asserted.
+
+    The x3 run puts bar t + 1's low at ``max(1.5 x the highest high of bars t-90..t, 3 x high[t+1])``
+    (``perturb.py``), so ``close'[t+1] >= 3 high[t+1] >= 2 close[t]`` where the rule says True; below the threshold the
+    window's high can still lift it (above about 4/3 of ``close[t]``), which the rule does not predict.
+    """
+    return True if float(bars["high"][t + 1]) >= 2.0 / 3.0 * float(bars["close"][t]) else None
+
+
+def truncation_cannot_flag(b: Benches, key: str, schedule: str) -> np.ndarray:
+    """(cuts,) bool: the truncation removes no bar because its point is the series' last row (``t`` for TRUNC-0,
+    ``t + 1`` for TRUNC-1, ``e`` for ENDS and RETILE). Structural, from the cut lists; never from the flags."""
+    part = key.split("/")[0]
+    if part in ("ENDS", "RETILE"):
+        units = [b.trunc.cuts[i] for i in b.trunc_parts["ENDS"]]
+    else:
+        units = [b.trunc.cuts[i] for i in b.trunc_parts[part][b.rows(schedule)]]
+    return np.array([u["at"] == b.schedules[u["pair"]].bars.height - 1 for u in units], dtype=bool)
 
 
 def check_classes(b: Benches) -> dict[str, Any]:
     """§3.3's registered verdicts on the run's bars: counts of disagreements (each must be 0), and FI on M2 by its rule.
 
-    M1 is checked under G and M (under P a gated comparison with a missing operand is missing: reported, not asserted).
-    TWO-RUN and SHUFFLE on M2 are "not predicted": reported only.
+    M1 (pass 5b, Minor 6): "never" for every detector under G and M; under P (a node with a missing operand is
+    missing, the gate included) the truncation detectors (TRUNC-0, TRUNC-1, ENDS, RETILE) flag it at every cut of its
+    schedule, except the cuts whose truncation point is the series' last row, which cannot flag and must not: they
+    are counted apart (:func:`truncation_cannot_flag`). FI on M2: asserted where :func:`fi_m2_rule` says "flagged";
+    the other cuts are "not predicted", counted and reported. TWO-RUN and SHUFFLE on M2 are "not predicted": reported.
     """
     bad: dict[str, int] = {}
     reported: dict[str, Any] = {}
@@ -901,7 +1010,13 @@ def check_classes(b: Benches) -> dict[str, Any]:
         v = cut_verdicts(judge_all(class_m1(b, schedule), b), b)
         keys = [k for k in v if k[1] == schedule and (k[0].split("/")[-1] in ("G", "M") or "/" not in k[0])]
         bad[f"M1 {schedule}"] = int(sum(int(v[k].any(axis=1).sum()) for k in keys))
-        reported[f"M1 {schedule} under P"] = {k[0]: int(v[k].any(axis=1).sum()) for k in v if k[1] == schedule and k[0].endswith("/P")}
+        under_p, wrong = {}, 0
+        for k in (k for k in v if k[1] == schedule and k[0].endswith("/P")):
+            flagged, cannot = v[k].any(axis=1), truncation_cannot_flag(b, k[0], schedule)
+            wrong += int((~flagged & ~cannot).sum() + (flagged & cannot).sum())
+            under_p[k[0]] = {"cuts": int(flagged.size), "flagged": int(flagged.sum()), "cannot_flag_last_row": int(cannot.sum())}
+        bad[f"M1 {schedule} under P"] = wrong
+        reported[f"M1 {schedule} under P"] = under_p
     for mirrored in (False, True):
         name = "M2 mirror" if mirrored else "M2"
         v = cut_verdicts(judge_all(class_m2(mirrored=mirrored), b), b)
@@ -911,8 +1026,11 @@ def check_classes(b: Benches) -> dict[str, Any]:
             count += int(g.sum() if not mirrored else (~g).sum()) + int((~m).sum() if not mirrored else m.sum())
             if not mirrored:
                 cuts = [b.cuts[i] for i in b.rows(schedule)]
-                rule = np.array([fi_m2_rule(b.schedules[c["pair"]].bars, c["index"]) for c in cuts])
-                count += int((v[("FI", schedule)].any(axis=1) != rule).sum())
+                predicted = np.array([fi_m2_rule(b.schedules[c["pair"]].bars, c["index"]) is True for c in cuts], dtype=bool)
+                fi = v[("FI", schedule)].any(axis=1)
+                count += int((predicted & ~fi).sum())
+                reported[f"M2 FI {schedule}"] = {"predicted_flagged": int(predicted.sum()), "not_predicted": int((~predicted).sum()),
+                                                  "flagged_where_not_predicted": int((~predicted & fi).sum())}  # fmt: skip
             reported[f"{name} {schedule}"] = {k[0]: int(v[k].any(axis=1).sum()) for k in v if k[1] == schedule and k[0] in ("TWO-RUN", "SHUFFLE")}
         bad[name] = count
     v = cut_verdicts(judge_all(class_m3(), b), b)
@@ -959,6 +1077,7 @@ class LeakResult:
     split: dict[str, list[int]]  # "<key>@<schedule>" -> [flagged rows, of them through a missing read]
     violations: dict[str, int]
     counts: dict[str, int]
+    finite: dict[str, np.ndarray] = field(default_factory=dict)  # ``flags`` under §4.4's "ignores outputs that turn missing"
 
 
 def _constant(r: Rows, cut_rows: np.ndarray, scored: np.ndarray) -> bool:
@@ -994,8 +1113,8 @@ def _ties(leak: adv.Leak, key: str, b: Benches) -> np.ndarray:
     return np.stack([tie[:c] | tie[c * (1 + j) : c * (2 + j)] for j in range(r)], axis=1)
 
 
-def _flag_dict(rows: dict[str, Rows], b: Benches, *, h1_only: bool = False) -> dict[str, np.ndarray]:
-    v = cut_verdicts(rows, b)
+def _flag_dict(rows: dict[str, Rows], b: Benches, *, h1_only: bool = False, finite: bool = False) -> dict[str, np.ndarray]:
+    v = cut_verdicts(rows, b, finite=finite)
     return {f"{k}@{s}": f for (k, s), f in v.items() if not h1_only or s in ("h1", "ends")}
 
 
@@ -1050,6 +1169,8 @@ def process_leak(leak: adv.Leak, b: Benches) -> LeakResult:
                 for s_ in sorted({s for s, _ in b.two_run_runs}):
                     cols = [j for j, (s, _) in enumerate(b.two_run_runs) if s == s_]
                     split[f"TWO-RUN s{s_:g}@h1"] = [int(r.flags[h1][:, cols].sum()), int(through[h1][:, cols].sum())]
+                primary = [j for j, (s, k) in enumerate(b.two_run_runs) if s == b.two_run_runs[0][0] and k <= 2]  # §4.4, Minor 10
+                split[f"TWO-RUN s{b.two_run_runs[0][0]:g} r2@h1"] = [int(r.flags[h1][:, primary].sum()), int(through[h1][:, primary].sum())]
 
     # §2.4: RETILE's flags equal the windowed TRUNC-0 run at the same ends, row for row.
     ends = b.trunc_parts["ENDS"]
@@ -1082,14 +1203,14 @@ def process_leak(leak: adv.Leak, b: Benches) -> LeakResult:
     if pred is not None:
         windowed = _windowed(b)
         expected = {key: predicted_flags("FP1", pred, bench, conv) for key, bench, conv in windowed}
-        can_flag = {key: control_can_flag(leak, bench) for key, bench, _ in windowed if not key.endswith(("/M", "/P"))}
         trunc_h1 = np.concatenate([b.trunc_parts["TRUNC-0"][h1], b.trunc_parts["TRUNC-1"][h1]])
         h1_rows_of = {key: trunc_h1 if bench is b.trunc else np.arange(bench.n_cuts) if bench is b.shuffle else h1 for key, bench, _ in windowed}
+        can_flag = {key: control_can_flag(leak, bench, h1_rows_of[key]) for key, bench, _ in windowed if not key.endswith(("/M", "/P"))}
         for kind in CANCELLED_KINDS:
             control = cancelled_control(leak, kind)
             add("controls-built")
             for key, flag in can_flag.items():
-                add(f"controls-can-flag:{key.split('/')[0]}", int(flag))
+                add(f"controls-can-flag:{kind}:{key.split('/')[0]}", int(flag))
             for key, bench, conv in windowed:
                 got = judge_window(control, bench, conv).cut_flags
                 exp = np.zeros_like(got) if kind == "FP2-fmin" else expected[key]
@@ -1099,7 +1220,8 @@ def process_leak(leak: adv.Leak, b: Benches) -> LeakResult:
                 add(f"control-disagreements-h1:{kind}:{key}", wrong_h1)
                 add(f"control-disagreements-elsewhere:{kind}:{key}", int((got != exp).sum()) - wrong_h1)
                 add(f"control-flags-h1:{kind}:{key}", int(got[at_h1].any(axis=1).sum()))
-    return LeakResult(leak.id, _flag_dict(rows, b), mirror_flags, constant_h1, bool(fast.constant), twin_constant, split, viol, counts)
+    return LeakResult(leak.id, _flag_dict(rows, b), mirror_flags, constant_h1, bool(fast.constant), twin_constant, split, viol, counts,
+                      _flag_dict(rows, b, finite=True))  # fmt: skip
 
 
 # --- The population, across workers -----------------------------------------------------------------------
@@ -1225,13 +1347,20 @@ def run_gates(leaks: Sequence[adv.Leak], bars_by_pair: dict[str, pl.DataFrame], 
 
 # --- The metrics (§4) and H15 (§5) -------------------------------------------------------------------------------
 
-def _stack_flags(results: Sequence[LeakResult], key: str) -> np.ndarray:
-    return np.stack([r.flags[key] for r in results])
+def _stack_flags(results: Sequence[LeakResult], key: str, attr: str = "flags") -> np.ndarray:
+    return np.stack([getattr(r, attr)[key] for r in results])
 
 
-def primary_verdicts(results: Sequence[LeakResult], b: Benches, cfg: DetectorConfig) -> dict[str, np.ndarray]:
-    """Every registered variant as (leaks, cuts) any-run verdicts; H1's cuts unless the name says ``@long`` or ``@ends``."""
+def primary_verdicts(results: Sequence[LeakResult], b: Benches, cfg: DetectorConfig, *, finite: bool = False) -> dict[str, np.ndarray]:
+    """Every registered variant as (leaks, cuts) any-run verdicts; H1's cuts unless the name says ``@long`` or ``@ends``.
+
+    ``finite``: the same variants under §4.4's sensitivity rule, "ignores outputs that turn missing".
+    """
     runs = b.two_run_runs
+    attr = "finite" if finite else "flags"
+
+    def stacked(key: str) -> np.ndarray:
+        return _stack_flags(results, key, attr)
 
     def two(sigma: float, k: int) -> list[int]:
         return [j for j, (s, r) in enumerate(runs) if s == sigma and r <= k]
@@ -1239,22 +1368,22 @@ def primary_verdicts(results: Sequence[LeakResult], b: Benches, cfg: DetectorCon
     out: dict[str, np.ndarray] = {}
     for sched in ("h1", "long"):
         suffix = "" if sched == "h1" else "@long"
-        fi = _stack_flags(results, f"FI@{sched}")
+        fi = stacked(f"FI@{sched}")
         out[f"FI{suffix}"] = fi.any(axis=2)
         out[f"FI x3{suffix}"], out[f"FI /3{suffix}"] = fi[:, :, 0], fi[:, :, 1]
         for part in ("TRUNC-0", "TRUNC-1"):
             for conv in CONVENTIONS:
-                out[f"{part}/{conv}{suffix}"] = _stack_flags(results, f"{part}/{conv}@{sched}")[:, :, 0]
-        tr = _stack_flags(results, f"TWO-RUN@{sched}")
+                out[f"{part}/{conv}{suffix}"] = stacked(f"{part}/{conv}@{sched}")[:, :, 0]
+        tr = stacked(f"TWO-RUN@{sched}")
         for sigma in cfg.sigmas:
             for k in (1, 2, cfg.two_run_runs):
                 out[f"TWO-RUN s{sigma:g} r{k}{suffix}"] = tr[:, :, two(sigma, k)].any(axis=2)
-    sh = _stack_flags(results, "SHUFFLE@h1")
+    sh = stacked("SHUFFLE@h1")
     for k in (1, 2, cfg.shuffle_k):
         out[f"SHUFFLE k{k}"] = sh[:, :, :k].any(axis=2)
     for conv in CONVENTIONS:
-        out[f"RETILE/{conv}@ends"] = _stack_flags(results, f"RETILE/{conv}@ends")[:, :, 0]
-        out[f"ENDS/{conv}@ends"] = _stack_flags(results, f"ENDS/{conv}@ends")[:, :, 0]
+        out[f"RETILE/{conv}@ends"] = stacked(f"RETILE/{conv}@ends")[:, :, 0]
+        out[f"ENDS/{conv}@ends"] = stacked(f"ENDS/{conv}@ends")[:, :, 0]
     out["TRUNC-0"], out["TWO-RUN"], out["SHUFFLE"] = out["TRUNC-0/G"], out[f"TWO-RUN s{cfg.sigmas[0]:g} r2"], out[f"SHUFFLE k{cfg.shuffle_k}"]
     return out
 
@@ -1298,23 +1427,32 @@ def _pair(x: np.ndarray, y: np.ndarray, rate_x: np.ndarray | None = None, rate_y
     return out
 
 
-def summarize(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Benches, cfg: DetectorConfig) -> dict[str, Any]:
-    """Every registered metric of §4 and H15's labels (§5), from the verdicts."""
+def summarize(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Benches, cfg: DetectorConfig, *,
+              invariant: np.ndarray | None = None) -> dict[str, Any]:  # fmt: skip
+    """Every registered metric of §4 and H15's labels (§5), from the verdicts.
+
+    §4.6's three denominators (all leaks, not constant at H1's compared rows, ``designed: no``) apply to every share
+    of §4.1 to §4.5: the any-cut share and the mean rate, the families, the ``position`` strata, the first-m-cuts
+    curve, the read split (summed over the denominator's leaks) and the conventions; and to §4.4's sensitivity,
+    "ignores outputs that turn missing". ``invariant``: :func:`placement_invariant`, computed here when not given.
+    """
     v = primary_verdicts(results, b, cfg)
     n = len(leaks)
     anyc = {k: x.any(axis=1) for k, x in v.items()}
+    anyf = {k: x.any(axis=1) for k, x in primary_verdicts(results, b, cfg, finite=True).items()}
     rate = {k: x.mean(axis=1) for k, x in v.items()}
     family = np.array([leak.family for leak in leaks])
     designed = np.array([leak.tag["designed"] for leak in leaks])
     constant_h1 = np.array([r.constant_h1 for r in results])
     constant_both = np.array([r.constant_both for r in results])
-    invariant = np.array([_no_threshold(cfg.population_seed, leak.id) for leak in leaks], dtype=bool)
+    invariant = placement_invariant(cfg, leaks) if invariant is None else np.asarray(invariant, dtype=bool)
     denominators = {"all": np.ones(n, dtype=bool), "not-constant": ~constant_h1, "designed-no": designed == "no"}
     strata = _strata(leaks)
     names = [k for k in v if "@" not in k or k.endswith("@ends")]
+    families = [f for f in adv.FAMILIES if (family == f).any()]
 
-    def shares(mask: np.ndarray) -> dict[str, Any]:
-        return {k: ds.share(int(anyc[k][mask].sum()), int(mask.sum())) for k in names}
+    def share_of(caught: np.ndarray, mask: np.ndarray) -> dict[str, Any]:
+        return ds.share(int(caught[mask].sum()), int(mask.sum()))
 
     detectors = {}
     for k in names:
@@ -1323,33 +1461,43 @@ def summarize(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Bench
             "cuts": int(v[k].shape[1]),
             "any_cut": {d: ds.share(int(anyc[k][m].sum()), int(m.sum())) for d, m in denominators.items()},
             "mean_per_cut_rate": {d: ds.mean_rate(rate[k][m]) for d, m in denominators.items()},
-            "by_family": {f: ds.share(int(anyc[k][family == f].sum()), int((family == f).sum())) for f in adv.FAMILIES if (family == f).any()},
-            "by_position": {s: ds.share(int(anyc[k][m].sum()), int(m.sum())) for s, m in strata.items()},
+            "by_family": {d: {f: share_of(anyc[k], m & (family == f)) for f in families} for d, m in denominators.items()},
+            "by_position": {d: {s: share_of(anyc[k], m & sm) for s, sm in strata.items()} for d, m in denominators.items()},
         }
+    sensitivity = {k: {d: share_of(anyf[k], m) for d, m in denominators.items()} for k in names}  # §4.4, Minor 7
     long_names = [k for k in v if k.endswith("@long")]
     long_ = {k: {"runs_per_cut": _runs_per_cut(k), "cuts": int(v[k].shape[1]), "any_cut": ds.share(int(anyc[k].sum()), n),
                  "mean_per_cut_rate": ds.mean_rate(rate[k])} for k in long_names}  # fmt: skip
 
     order = _h1_order(b)
-    curves = {k: ds.first_m_curve(v[k], order) for k in ("FI", "TRUNC-0", "TWO-RUN", "SHUFFLE", "TRUNC-1/G")}
+    curves = {k: {d: ds.first_m_curve(v[k][m], order) for d, m in denominators.items()} for k in ("FI", "TRUNC-0", "TWO-RUN", "SHUFFLE", "TRUNC-1/G")}
 
-    # §4.4: the read split, row level, at H1's cuts (RETILE at its ends).
-    split: dict[str, list[int]] = {}
-    for r in results:
-        for k, (flagged, through) in r.split.items():
-            s = split.setdefault(k, [0, 0])
-            s[0] += flagged
-            s[1] += through
-    read_split = {k: {"flagged_rows": f, "through_a_missing_read": ds.share(t, f), "through_a_changed_value": ds.share(f - t, f)} for k, (f, t) in sorted(split.items())}
+    # §4.4: the read split, row level, at H1's cuts (RETILE at its ends), summed over each denominator's leaks.
+    split_keys = sorted({k for r in results for k in r.split})
+    read_split = {}
+    for d, m in denominators.items():
+        split = {k: [0, 0] for k in split_keys}
+        for r, keep in zip(results, m, strict=True):
+            for k, (flagged, through) in r.split.items():
+                if keep:
+                    split[k][0] += flagged
+                    split[k][1] += through
+        read_split[d] = {k: {"flagged_rows": f, "through_a_missing_read": ds.share(t, f), "through_a_changed_value": ds.share(f - t, f)}
+                         for k, (f, t) in split.items()}  # fmt: skip
 
     # §4.5: conventions.
-    conv_shares = {c: anyc[f"TRUNC-0/{c}"].mean() for c in CONVENTIONS}
+    def sentence(m: np.ndarray) -> dict[str, Any]:
+        if not m.any():
+            return {"X": None, "Y": None, "G_to_M": [None, None]}
+        conv_shares = {c: anyc[f"TRUNC-0/{c}"][m].mean() for c in CONVENTIONS}
+        return {"X": float(min(conv_shares.values())), "Y": float(max(conv_shares.values())),
+                "G_to_M": sorted([float(conv_shares["G"]), float(conv_shares["M"])])}  # fmt: skip
+
     conventions = {
-        "TRUNC-0": {c: ds.share(int(anyc[f"TRUNC-0/{c}"].sum()), n) for c in CONVENTIONS},
-        "TRUNC-1": {c: ds.share(int(anyc[f"TRUNC-1/{c}"].sum()), n) for c in CONVENTIONS},
-        "RETILE": {c: ds.share(int(anyc[f"RETILE/{c}@ends"].sum()), n) for c in CONVENTIONS},
-        "sentence": {"X": float(min(conv_shares.values())), "Y": float(max(conv_shares.values())),
-                     "G_to_M": sorted([float(conv_shares["G"]), float(conv_shares["M"])])},  # fmt: skip
+        "TRUNC-0": {d: {c: share_of(anyc[f"TRUNC-0/{c}"], m) for c in CONVENTIONS} for d, m in denominators.items()},
+        "TRUNC-1": {d: {c: share_of(anyc[f"TRUNC-1/{c}"], m) for c in CONVENTIONS} for d, m in denominators.items()},
+        "RETILE": {d: {c: share_of(anyc[f"RETILE/{c}@ends"], m) for c in CONVENTIONS} for d, m in denominators.items()},
+        "sentence": {d: sentence(m) for d, m in denominators.items()},
     }
 
     # §4.7, §4.8: pairs.
@@ -1396,7 +1544,8 @@ def summarize(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Bench
     missed_by = {d: ds.share(int((union & ~anyc[d]).sum()), int(union.sum())) for d in PRIMARY}
     misses = ~union
     secondary = {"TRUNC-1": anyc["TRUNC-1/G"], "RETILE": anyc["RETILE/G@ends"], f"sigma {cfg.sigmas[-1]:g}": anyc[f"TWO-RUN s{cfg.sigmas[-1]:g} r2"],
-                 "long schedule": union_rows["over both schedules"] & ~union, "convention M": anyc["TRUNC-0/M"]}  # fmt: skip
+                 "long schedule": anyc["FI@long"] | anyc["TRUNC-0/G@long"] | anyc["TRUNC-1/G@long"] | anyc[f"TWO-RUN s{cfg.sigmas[0]:g} r2@long"],  # §4.11
+                 "convention M": anyc["TRUNC-0/M"]}  # fmt: skip
     union_misses = {
         "count": int(misses.sum()),
         "constant_h1_cuts": int((misses & constant_h1).sum()),
@@ -1417,7 +1566,7 @@ def summarize(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Bench
     # §5: H15.
     def diff(mask: np.ndarray, trunc_key: str) -> dict[str, Any]:
         t = ds.paired_table(anyc[trunc_key][mask], anyc["FI"][mask])
-        return ds.newcombe_paired(t["a"], t["b"], t["c"], t["d"])
+        return {**ds.newcombe_paired(t["a"], t["b"], t["c"], t["d"]), "table": t}  # each cell with its 2x2 table (M4)
 
     deciding = diff(denominators["all"], "TRUNC-0")
     h15 = ds.h15(deciding, {"convention M": diff(denominators["all"], "TRUNC-0/M"), "not-constant denominator": diff(~constant_h1, "TRUNC-0")})
@@ -1433,7 +1582,8 @@ def summarize(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Bench
 
     per_leak = [{"id": leak.id, "family": leak.family, "invariant": bool(invariant[i]), "constant_h1_cuts": bool(constant_h1[i]),
                  **{d: "".join("X" if x else "." for x in v[d][i]) for d in PRIMARY}} for i, leak in enumerate(leaks)]  # fmt: skip
-    return {"detectors": detectors, "long_schedule": long_, "first_m_cuts": curves, "read_split": read_split, "conventions": conventions,
+    return {"detectors": detectors, "ignores_outputs_that_turn_missing": sensitivity, "long_schedule": long_, "first_m_cuts": curves,
+            "read_split": read_split, "conventions": conventions,
             "pairs": pairs, "equal_run_counts": equal, "mirror_asymmetry": mirrors, "union": {k: ds.share(int(m.sum()), n) for k, m in union_rows.items()},
             "missed_by_detector_among_union": missed_by, "union_misses": union_misses, "descriptive": descriptive, "placement_invariant_subset": subset,
             "h15": h15, "cut_date_bootstrap": boot, "replications": {"FI any cut": detectors["FI"]["any_cut"]["all"], "SHUFFLE any cut": detectors["SHUFFLE"]["any_cut"]["all"]},
@@ -1445,6 +1595,145 @@ def _no_threshold(seed: int, i: int) -> bool:
     place = adv.Placement(adv.H1_BANDS)
     adv._draw_leak(seed, i, place)
     return place.calls == 0
+
+
+def placement_invariant(cfg: DetectorConfig, leaks: Sequence[adv.Leak]) -> np.ndarray:
+    """(leaks,) bool: §1.6's placement-invariant subset."""
+    return np.array([_no_threshold(cfg.population_seed, leak.id) for leak in leaks], dtype=bool)
+
+
+# --- The per-leak verdict file (pass 5b, M4): written only when every assertion and gate passes ---------------
+
+VERDICT_FILE = "verdicts.jsonl"
+VERDICT_FORMAT = "olsprime-detector-verdicts/1"
+VERDICT_FIELDS: tuple[str, ...] = ("id", "family", "output", "designed", "position", "placement_invariant", "constant_h1_cuts",
+                                   "constant_both_schedules", "flags", "finite", "mirror")  # fmt: skip
+
+
+def _run_labels(key: str, b: Benches) -> list[str]:
+    """The labels of a raw key's run columns, in column order."""
+    name = key.split("@")[0].split("/")[0]
+    if name == "FI":
+        return list(b.fi.directions)
+    if name == "TWO-RUN":
+        return list(b.two_run.directions)
+    if name == "SHUFFLE":
+        return list(b.shuffle.directions)
+    return ["tile"] if name == "RETILE" else ["truncated"]
+
+
+def registered_variants(b: Benches, cfg: DetectorConfig) -> dict[str, dict[str, Any]]:
+    """Every variant of :func:`primary_verdicts` as a raw key and the run columns it takes the OR of (by label)."""
+    fi, two, sh = list(b.fi.directions), list(b.two_run.directions), list(b.shuffle.directions)
+    out: dict[str, dict[str, Any]] = {}
+    for sched in ("h1", "long"):
+        suffix = "" if sched == "h1" else "@long"
+        out[f"FI{suffix}"] = {"key": f"FI@{sched}", "runs": fi}
+        out[f"FI x3{suffix}"], out[f"FI /3{suffix}"] = {"key": f"FI@{sched}", "runs": ["x3"]}, {"key": f"FI@{sched}", "runs": ["/3"]}
+        for part in ("TRUNC-0", "TRUNC-1"):
+            for conv in CONVENTIONS:
+                out[f"{part}/{conv}{suffix}"] = {"key": f"{part}/{conv}@{sched}", "runs": ["truncated"]}
+        for sigma in cfg.sigmas:
+            for k in (1, 2, cfg.two_run_runs):
+                out[f"TWO-RUN s{sigma:g} r{k}{suffix}"] = {"key": f"TWO-RUN@{sched}", "runs": [f"s{sigma:g}-r{r}" for r in range(1, k + 1)]}
+    for k in (1, 2, cfg.shuffle_k):
+        out[f"SHUFFLE k{k}"] = {"key": "SHUFFLE@h1", "runs": sh[:k]}
+    for conv in CONVENTIONS:
+        out[f"RETILE/{conv}@ends"] = {"key": f"RETILE/{conv}@ends", "runs": ["tile"]}
+        out[f"ENDS/{conv}@ends"] = {"key": f"ENDS/{conv}@ends", "runs": ["truncated"]}
+    out["TRUNC-0"], out["TWO-RUN"], out["SHUFFLE"] = out["TRUNC-0/G"], out[f"TWO-RUN s{cfg.sigmas[0]:g} r2"], out[f"SHUFFLE k{cfg.shuffle_k}"]
+    if not set(two) >= {r for v in out.values() if v["key"].startswith("TWO-RUN") for r in v["runs"]}:
+        raise AssertionError("a TWO-RUN variant names a run the bench does not hold")
+    return out
+
+
+def _layout(sample: dict[str, np.ndarray], b: Benches) -> list[dict[str, Any]]:
+    out, offset = [], 0
+    for key in sorted(sample):
+        cuts, runs = sample[key].shape
+        out.append({"key": key, "cuts": int(cuts), "runs": int(runs), "run_labels": _run_labels(key, b), "offset": offset})
+        offset += cuts * runs
+    return out
+
+
+def _pack(arrays: dict[str, np.ndarray], layout: list[dict[str, Any]]) -> str:
+    bits = np.concatenate([np.asarray(arrays[e["key"]], dtype=bool).reshape(e["cuts"] * e["runs"]) for e in layout])
+    return np.packbits(bits, bitorder="little").tobytes().hex()
+
+
+def verdict_file(leaks: Sequence[adv.Leak], results: Sequence[LeakResult], b: Benches, cfg: DetectorConfig,
+                 invariant: np.ndarray) -> str:  # fmt: skip
+    """The per-leak file (pass 5b, M4): a header line, then one line per leak in id order. Deterministic.
+
+    Each leak's line is a JSON array of :data:`VERDICT_FIELDS`. ``flags`` holds every raw cut-by-run verdict of the
+    leak (H1's catch rule) for every detector, convention and schedule; ``finite`` the same under §4.4's
+    sensitivity rule, "ignores outputs that turn missing"; ``mirror`` the mirror's verdicts at H1's cuts and
+    RETILE's ends under G, or null for a leak whose root is not a single comparison. Every registered variant is an
+    OR over named run columns of one raw key (the header's ``variants``).
+    """
+    import json
+
+    flags_layout, mirror_layout = _layout(results[0].flags, b), None
+    for r in results:
+        if r.mirror is not None:
+            mirror_layout = _layout(r.mirror, b)
+            break
+    cut_meta = {s: [{k: b.cuts[i][k] for k in ("pair", "k", "index", "open_time")} for i in b.rows(s)] for s in ("h1", "long")}
+    cut_meta["ends"] = [{k: m[k] for k in ("pair", "tau", "m", "index", "open_time")} for m in b.retile.ends]
+    header = {
+        "format": VERDICT_FORMAT,
+        "fields": list(VERDICT_FIELDS),
+        "encoding": ("Each of flags, finite and mirror is the hex of numpy.packbits(bits, bitorder='little') of one bit "
+                     "vector: the raw keys in the layout's order, each key's (cuts, runs) array flattened cut by cut "
+                     "(bit offset + cut * runs + run). A cut's position is its index in cuts[schedule] (the key's "
+                     "suffix: @h1, @long or @ends); SHUFFLE@h1's cuts are H1's. flags: H1's catch rule (a move above "
+                     "1e-9 or a change of missingness, at the scored compared rows). finite: §4.4's sensitivity, "
+                     "'ignores outputs that turn missing' (some output finite in both runs and moved above 1e-9). "
+                     "mirror: the mirror leak (§4.9), null unless the root is a single comparison. Tags as drawn; "
+                     "placement_invariant, constant_h1_cuts and constant_both_schedules are 0 or 1."),
+        "not_in_this_file": ["the read split (§4.4): row level, detectors.json only",
+                             "the number of distinct expressions (§4.12): detectors.json only",
+                             "the assertions, the gates, the controls and TWO-RUN's repair statistics: detectors.json only"],
+        "pairs": list(b.pairs),
+        "cuts": cut_meta,
+        "layout": {"flags": flags_layout, "finite": flags_layout, "mirror": mirror_layout},
+        "variants": registered_variants(b, cfg),
+        "config": config_json(cfg),
+        "leaks": len(leaks),
+    }
+    lines = [json.dumps(header, sort_keys=True, separators=(",", ":"))]
+    for i, (leak, r) in enumerate(zip(leaks, results, strict=True)):
+        if leak.id != r.id or leak.id != i:
+            raise AssertionError("the verdict file is written in id order")
+        tag = leak.tag
+        row = [leak.id, leak.family, leak.output, tag["designed"], tag["position"], int(invariant[i]), int(r.constant_h1),
+               int(r.constant_both), _pack(r.flags, flags_layout), _pack(r.finite, flags_layout),
+               None if r.mirror is None else _pack(r.mirror, mirror_layout)]  # fmt: skip
+        lines.append(json.dumps(row, separators=(",", ":")))
+    return "\n".join(lines) + "\n"
+
+
+def read_verdict_file(text: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The header and, per leak, its fields with ``flags``, ``finite`` and ``mirror`` as {key: (cuts, runs) bool}."""
+    import json
+
+    first, *rest = text.splitlines()
+    header = json.loads(first)
+
+    def unpack(hexed: str | None, layout: list[dict[str, Any]] | None) -> dict[str, np.ndarray] | None:
+        if hexed is None or layout is None:
+            return None
+        total = sum(e["cuts"] * e["runs"] for e in layout)
+        bits = np.unpackbits(np.frombuffer(bytes.fromhex(hexed), dtype=np.uint8), bitorder="little")[:total].astype(bool)
+        return {e["key"]: bits[e["offset"] : e["offset"] + e["cuts"] * e["runs"]].reshape(e["cuts"], e["runs"]) for e in layout}
+
+    rows = []
+    for line in rest:
+        rec = dict(zip(header["fields"], json.loads(line), strict=True))
+        for name in ("flags", "finite", "mirror"):
+            rec[name] = unpack(rec[name], header["layout"][name])
+        rows.append(rec)
+    return header, rows
 
 
 # --- The run and its stop rule (§7.4) --------------------------------------------------------------------------
@@ -1467,7 +1756,15 @@ def _check(violations: int, **counts: Any) -> dict[str, Any]:
     return {"pass": violations == 0, "violations": int(violations), **counts}
 
 
-def assertions_of(results: Sequence[LeakResult], b: Benches, classes: dict[str, Any]) -> dict[str, Any]:
+def long_dates_check(b: Benches, long_cuts: int) -> dict[str, Any]:
+    """§4.15 (pass 5b, Minor 11): the long schedule holds ``long_cuts`` (64) distinct dates, the same on every pair."""
+    per_pair = {p: sorted({c.open_time.isoformat()[:10] for c in b.schedules[p].long}) for p in b.pairs}
+    dates = next(iter(per_pair.values()))
+    ok = len(dates) == long_cuts and all(d == dates for d in per_pair.values())
+    return _check(0 if ok else 1, distinct_dates={p: len(d) for p, d in per_pair.items()}, shared_by_every_pair=all(d == dates for d in per_pair.values()))
+
+
+def assertions_of(results: Sequence[LeakResult], b: Benches, classes: dict[str, Any], long_cuts: int = adv.LONG_CUTS) -> dict[str, Any]:
     """Every assertion of §3.4 as pass or fail and counts: no rate, no per-leak verdict."""
     tot = dict.fromkeys(CHECKS, 0)
     counts: dict[str, int] = {}
@@ -1493,6 +1790,7 @@ def assertions_of(results: Sequence[LeakResult], b: Benches, classes: dict[str, 
         "§3.3 Fonseca's classes give their registered verdicts": _check(sum(classes["disagreements"].values()), by_class=classes["disagreements"]),
         "§4.4 truncation catches go through a missing read": _check(tot["truncation-catches-through-a-missing-read"]),
         "§4.9 a single-Cmp leak and its mirror are flagged together": _check(tot["mirror-flagged-together"]),
+        "§4.15 the long schedule holds 64 dates, shared by both pairs": long_dates_check(b, long_cuts),
         "row kernel equals the adversary's fast path (FI)": _check(tot["fi-row-kernel-equals-fast-path"]),
     }  # fmt: skip
 
@@ -1522,7 +1820,7 @@ def run(bars_by_pair: dict[str, pl.DataFrame], cfg: DetectorConfig, *, table_pat
     import time
 
     timings: dict[str, float] = {}
-    result: dict[str, Any] = {"config": config_json(cfg), "placement": cfg.placement,
+    result: dict[str, Any] = {"config": config_json(cfg), "placement": cfg.placement, "platform": platform_info(),
                               "table_sha256": adv.QUANTILE_TABLE_SHA256 if cfg.placement == adv.QUANTILE else None}  # fmt: skip
     if prov is not None:
         result["provenance"] = prov
@@ -1544,7 +1842,7 @@ def run(bars_by_pair: dict[str, pl.DataFrame], cfg: DetectorConfig, *, table_pat
     ids = adv.equivalence_ids(cfg.n, cfg.adversary)
     gates = run_gates([leaks[i] for i in ids], bars_by_pair, b, cfg, workers=workers, cuts_per_pair=gate_cuts_per_pair)
     timings["checks"] = time.perf_counter() - t2
-    result["assertions"] = assertions_of(results, b, classes)
+    result["assertions"] = assertions_of(results, b, classes, cfg.adversary.long_cuts)
     result["gates"] = gates
     result["all_pass"] = bool(all(a["pass"] for a in result["assertions"].values()) and gates["pass"])
     if not result["all_pass"]:
@@ -1552,8 +1850,10 @@ def run(bars_by_pair: dict[str, pl.DataFrame], cfg: DetectorConfig, *, table_pat
         result["_timings"] = timings
         return result
     t3 = time.perf_counter()
-    result["metrics"] = summarize(leaks, results, b, cfg)
+    invariant = placement_invariant(cfg, leaks)
+    result["metrics"] = summarize(leaks, results, b, cfg, invariant=invariant)
     result["reported"] = reported_counts(results, b, classes)
+    result["_verdicts"] = verdict_file(leaks, results, b, cfg, invariant)  # written beside detectors.json, never inside it
     timings["metrics"] = time.perf_counter() - t3
     result["_timings"] = timings
     return result
@@ -1572,6 +1872,8 @@ def _ci(s: dict[str, Any]) -> str:
 
 
 def _pts(d: dict[str, Any]) -> str:
+    if d["difference"] is None:  # an empty cell: null in the JSON since pass 5b's nit
+        return "n/a (no leak)"
     lo, hi = d["ci95"]
     return f"{100 * d['difference']:+.2f} points [{100 * lo:+.2f}, {100 * hi:+.2f}]"
 
@@ -1581,8 +1883,8 @@ def render_md(result: dict[str, Any]) -> str:
     lines = [
         "# Leak detectors measured against each other (iteration 5)",
         "",
-        "Design: `docs/PROTOCOL.md`, \"Leak detectors measured against each other (iteration 5)\"; H15 in `docs/HYPOTHESES.md`. "
-        "These rates describe one seeded generator of leaks on these bars and dates, not all leaks.",
+        ("Design: `docs/PROTOCOL.md`, \"Leak detectors measured against each other (iteration 5)\"; H15 in `docs/HYPOTHESES.md`. "
+         "These rates describe one seeded generator of leaks on these bars and dates, not all leaks."),
         "",
         f"Population: {cfg['n']} leaks, seed {cfg['population_seed']}, placement `{result['placement']}`"
         + (f" (quantile table SHA-256 `{result['table_sha256']}`)" if result["table_sha256"] else "")
@@ -1613,28 +1915,33 @@ def render_md(result: dict[str, Any]) -> str:
                      f"{_pct(a['designed-no']['share'])} | {_pct(x['mean_per_cut_rate']['all']['mean'])} |")  # fmt: skip
     h = m["h15"]
     lines += ["", "## H15 (deciding cell: TRUNC-0 against FI, H1's 16 cuts, any cut, all leaks, convention G)", "",
-              f"TRUNC-0 minus FI: {_pts(h['deciding_cell'])} (Newcombe, method 10). Sign: **{h['sign']}**. Margin: **{h['margin']}**. "
-              f"Prior: **{h['prior']}**." + (f" Reported as **{h['words']}** ({', '.join(h['qualifier']['triggered_by'])})." if h["words"] else ""),
-              f"Exact McNemar p: {h['deciding_cell']['mcnemar_exact_p']:.4g}. Beside it, never deciding: mean per-cut rate difference "
-              f"{100 * h['beside']['mean_per_cut_rate_difference']['mean']:+.2f} points; convention P {_pts(h['beside']['convention P'])}."]  # fmt: skip
+              (f"TRUNC-0 minus FI: {_pts(h['deciding_cell'])} (Newcombe, method 10). Sign: **{h['sign']}**. Margin: **{h['margin']}**. "
+               f"Prior: **{h['prior']}**.") + (f" Reported as **{h['words']}** ({', '.join(h['qualifier']['triggered_by'])})." if h["words"] else ""),
+              (f"Exact McNemar p: {h['deciding_cell']['mcnemar_exact_p']:.4g}. Beside it, never deciding: mean per-cut rate difference "
+               f"{100 * h['beside']['mean_per_cut_rate_difference']['mean']:+.2f} points; convention P {_pts(h['beside']['convention P'])}.")]  # fmt: skip
     if m["cut_date_bootstrap"]:
         bt = m["cut_date_bootstrap"]
         lines.append(f"Cut-date bootstrap ({bt['subsets']} subsets of {bt['dates_per_subset']} of {bt['dates']} dates): "
                      f"{bt['percentiles_points'][0]:+.2f} to {bt['percentiles_points'][1]:+.2f} points"
                      + (" (wider than the 1-point margin: H15's verdict is date-dependent)." if bt["wider_than_margin"] else "."))  # fmt: skip
-    c = m["conventions"]["sentence"]
-    lines += ["", f"Truncation's rate lies between {_pct(c['X'])} and {_pct(c['Y'])} depending on how a missing bar is read "
-              f"(G to M: {_pct(c['G_to_M'][0])} to {_pct(c['G_to_M'][1])}).", "", "## Pairs (any cut, H1's 16 cuts)", "",
+    c = m["conventions"]["sentence"]["all"]
+    lines += ["", (f"Truncation's rate lies between {_pct(c['X'])} and {_pct(c['Y'])} depending on how a missing bar is read "
+                   f"(G to M: {_pct(c['G_to_M'][0])} to {_pct(c['G_to_M'][1])})."), "", "## Pairs (any cut, H1's 16 cuts)", "",
               "| pair | b | c | difference, Newcombe 95 % | exact McNemar p |", "|---|---|---|---|---|"]  # fmt: skip
     for name, p in {**m["pairs"], **m["equal_run_counts"]}.items():
         lines.append(f"| {name} | {p['b']} | {p['c']} | {_pts(p['newcombe'])} | {p['mcnemar_exact_p']:.4g} |")
     lines += ["", "## The union", "", *(f"- {k}: {_pct(s['share'])} {_ci(s)}" for k, s in m["union"].items()), "",
               "Caught by the union and missed by each detector (share of the union's catches):", "",
               *(f"- {k}: {s['count']} {_ci(s)}" for k, s in m["missed_by_detector_among_union"].items()), "",
-              f"The union's misses: {m['union_misses']['count']} (constant at H1's compared rows: {m['union_misses']['constant_h1_cuts']}; "
-              f"over both schedules: {m['union_misses']['constant_both_schedules']}).", "", "## Read split (row level)", ""]  # fmt: skip
-    for k, s in m["read_split"].items():
+              (f"The union's misses: {m['union_misses']['count']} (constant at H1's compared rows: {m['union_misses']['constant_h1_cuts']}; "
+               f"over both schedules: {m['union_misses']['constant_both_schedules']})."), "", "## Read split (row level)", ""]  # fmt: skip
+    for k, s in m["read_split"]["all"].items():
         lines.append(f"- {k}: {s['flagged_rows']} flagged rows, {_pct(s['through_a_missing_read']['share'])} through a missing read.")
+    lines += ["", "## Sensitivity: ignores outputs that turn missing (§4.4)", "",
+              "A row counts only where both outputs are finite and move by more than 1e-9.", "",
+              "| detector | all leaks | not constant | designed: no |", "|---|---|---|---|",
+              *(f"| {k} | {_pct(s['all']['share'])} | {_pct(s['not-constant']['share'])} | {_pct(s['designed-no']['share'])} |"
+                for k, s in m["ignores_outputs_that_turn_missing"].items())]  # fmt: skip
     lines += ["", "## Mirror asymmetry", "", *(f"- {k}: {_pct(s['any_cut']['share'])} {_ci(s['any_cut'])} of {s['leaks']} single-comparison leaks"
                                                 for k, s in m["mirror_asymmetry"].items())]  # fmt: skip
     lines += ["", "## Placement-invariant subset (never deciding)", ""]
@@ -1647,12 +1954,18 @@ def render_md(result: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write(out: Any, result: dict[str, Any], run_info: dict[str, Any]) -> None:
+def write(out: Any, result: dict[str, Any], run_info: dict[str, Any], verdicts: str | None = None) -> None:
+    """``detectors.json``, ``detectors.md``, ``run.json``; and the per-leak file only when ``verdicts`` is given, which
+    :func:`run` makes only once every assertion and gate has passed."""
     import json
     from pathlib import Path
 
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    if verdicts is not None:
+        if not result.get("all_pass"):
+            raise AssertionError("the per-leak file is written only when every assertion and gate passes")
+        (out / VERDICT_FILE).write_bytes(verdicts.encode("utf-8"))
     (out / "detectors.json").write_text(json.dumps(result, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     (out / "detectors.md").write_text(render_md(result), encoding="utf-8")
     (out / "run.json").write_text(json.dumps(run_info, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -1701,32 +2014,45 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "digest":
         if args.seed == CONFIRMATORY_POPULATION_SEED:
             parser.error("a digest of the confirmatory population is a deliberate, logged step after audit pass 5b (§1.7): not here")
+        if args.seed in FORBIDDEN_IN_WAVE_3:
+            parser.error(f"{args.seed} is a confirmatory seed of another role: never a population's seed")
         leaks = adv.generate(args.n, args.seed, placement=args.placement, table_path=args.table)
-        import platform
-
-        print(f"{development_digest(leaks)}  seed {args.seed}, n {args.n}, placement {args.placement}, numpy {np.__version__}, "
-              f"{platform.system()} {platform.machine()}; portable (12 digits) {portable_digest(leaks)}")  # fmt: skip
+        info = platform_info()
+        print(f"{development_digest(leaks)}  seed {args.seed}, n {args.n}, placement {args.placement}, numpy {info['numpy']}, "
+              f"{info['system']} {info['machine']}, Python {info['python']}; portable (12 digits, diagnostic, not registered) "
+              f"{portable_digest(leaks)}")  # fmt: skip
         return 0
-    if args.synthetic and FORBIDDEN_IN_WAVE_3 & {args.seed, args.two_run_seed, args.bootstrap_seed}:
-        parser.error("the confirmatory seeds are never run on synthetic bars")
+    refusal = registered_line_refusal(args)  # M2: before anything else
+    if refusal is not None:
+        parser.error(refusal)
     logging.basicConfig(level=logging.ERROR, format="%(asctime)s %(levelname)s %(message)s")
     import multiprocessing
 
     multiprocessing.set_start_method("spawn", force=True)  # the adversary's own pool (FI's gate) too: see _spawn
     started = time.perf_counter()
     cfg = DetectorConfig(population_seed=args.seed, two_run_seed=args.two_run_seed, placement=args.placement, n=args.n, bootstrap_seed=args.bootstrap_seed)
+    if args.placement == adv.QUANTILE and args.table is None:
+        parser.error("--placement quantile needs --table, the registered quantile table")
     if args.synthetic:
+        pin: dict[str, Any] = {"checked": False, "reason": "synthetic bars: the platform pin guards real-bar runs only"}
+        if args.placement == adv.QUANTILE:
+            adv.load_table(args.table)  # refuses before any work if the table is not the registered one
         prov = {**provenance.record({}), "bars": "synthetic"}
         bars = synthetic_pairs()
     else:
+        try:  # M1: the table and the platform pin before the manifest and before any bar is read
+            adv.load_table(args.table)
+            digest = check_platform_pin(args.table)
+        except (adv.TableRefused, PlatformRefused) as e:
+            parser.error(str(e))
+        pin = {"checked": True, "development_digest": digest, "registered": REGISTERED_DEVELOPMENT_DIGEST}
         prov = provenance.record(provenance.current_manifest())  # before any data is read
         bars = {pair: adv._load_development(pair, cfg.adversary.h1) for pair in cfg.adversary.h1.pairs}
-    if args.placement == adv.QUANTILE:
-        if args.table is None:
-            parser.error("--placement quantile needs --table, the registered quantile table")
-        adv.load_table(args.table)  # refuses before any work if the table is not the registered one
-    result = run(bars, cfg, table_path=args.table, workers=args.workers, prov=prov)
+    # The table goes to the generator under ``quantile`` only (``h1-bands`` refuses one); the pin above used it.
+    result = run(bars, cfg, table_path=args.table if args.placement == adv.QUANTILE else None, workers=args.workers, prov=prov)
+    result["platform_pin"] = pin
     timings = result.pop("_timings")
+    verdicts = result.pop("_verdicts", None)
     out = args.out
     if out is None:
         base = runs_dir() / f"{datetime.now(UTC):%Y-%m-%d}-detectors"
@@ -1734,7 +2060,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         while out.exists():
             out, k = base.with_name(f"{base.name}-{k}"), k + 1
     write(out, result, {"finished_at": datetime.now(UTC).isoformat(), "seconds": round(time.perf_counter() - started, 1),
-                        "stages": {k: round(v, 1) for k, v in timings.items()}, "workers": args.workers, "n": args.n})  # fmt: skip
+                        "stages": {k: round(v, 1) for k, v in timings.items()}, "workers": args.workers, "n": args.n,
+                        "platform": platform_info()}, verdicts)  # fmt: skip
     print(f"{headline(result)}; written to {out}")
     return 0 if result.get("all_pass") else 1
 

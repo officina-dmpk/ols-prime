@@ -681,3 +681,24 @@ So this iteration measures our detector against its rivals on one open benchmark
   - **The quantile table** was computed from the pre-2019 bars, a logged contact. Natural thresholds fall inside H1's bands 84 % of the time for body and 100 % for range, 32 to 40 % for the wicks: the new placement follows the bars, and is not neutral to FI.
   - **Registered:** the section "Leak detectors measured against each other (iteration 5)" in `docs/PROTOCOL.md`, and H15 in `docs/HYPOTHESES.md`, each with a dated change-log line.
   - **Also written:** the dated correction row of the constant misses in `docs/RESULTS.md`, and the Terms of Use line in `docs/DATA.md`.
+- **Third session (2026-11-19): wave 3 and audit pass 5b.** The detectors and the case study were built and tested on synthetic bars and the development seed only. Pass 5b gave GO with fixes, no Blocker; 4 Major, 12 Minor, 5 Nits (`audit-5b-findings.md`). The digest of a population depends on the platform's `exp`, so the official runs stay on Windows.
+- **Fourth session (2026-11-19).**
+  - Wave 3 is committed at `6ab7e3e`, as pass 5b audited it (code digest `8607e7c4…`). The fix wave (`fixes.md`) runs before pass 5b-bis and the frozen commit.
+  - **The fix wave is done** (`fixes-progress.md`). Every run-path finding is fixed: M1, M2, M4, Minors 5 to 11 and 14, and the nits. The auditor's scripts are now independent tests, and an opt-in test kills all 16 planted mutants on a copy of the tree. The full suite on Windows gives 1,743 passed and 5 skipped. The development digest still reproduces, and the code digest is `3b59007a…`. The text findings (Minors 12, 13, 15 and 16) and the replaced predictions are logged in `docs/PROTOCOL.md`'s dated line of 2026-11-19 after pass 5b. The fix commit is followed by pass 5b-bis, which reads its diff.
+  - **Candidate for the bolder next step, agreed with Abdou on 2026-11-19.** This is not registered, and nothing in iteration 5's design changes. Today's population holds direct leaks: functions of the next bars, drawn by our own generator. Real leaks mostly come from the pipeline:
+    - a scaler or normalisation fitted on the whole series;
+    - a centred rolling window;
+    - a `shift(-1)` in the wrong direction;
+    - a resampling misaligned between a bar's open and its close;
+    - a forward fill across a gap;
+    - a target encoding fitted on the test rows.
+  - **The step.** Measure the same detectors on two new sets, each pre-registered in its own iteration:
+    1. a population of those bug patterns, taken from a written catalogue of real bugs;
+    2. a corpus of community strategies (freqtrade's, for example; licence to check), each labelled leaky or clean from evidence independent of the detectors: a bug report, or a commit that fixed it.
+  - **Why.** "Detector X catches Y % of real bugs" is the claim practitioners would cite. "Y % of our generator" is not.
+  - **A second domain, also agreed with Abdou on 2026-11-19 and not registered: European electricity.**
+    - **What.** Day-ahead prices and load from the ENTSO-E Transparency Platform, hourly like our bars. The terms of use are still to read; they go in `docs/DATA.md` before any download. The API key is Abdou's, used by Abdou only.
+    - **Why there.**
+      - The classic leak is real and easy to label: forecasting with the realised weather instead of the forecast known the day before. That joins the realistic-bug population above.
+      - The regime changes are real, the 2022 energy crisis among them. Matrix's exact readout on any window, with no refit, helps choose the window.
+    - **What it would give the paper.** The detectors measured in two domains, not crypto alone.

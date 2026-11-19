@@ -25,7 +25,15 @@ def test_newcombe_method_10_on_the_published_example():
 def test_newcombe_on_the_packages_edge_cases():
     r = ds.newcombe_paired(1, 0, 0, 1)  # matrix(c(1, 0, 0, 1), 2): 0.0000 (95% CI -0.5734 to 0.5734)
     assert r["difference"] == 0.0 and [round(x, 4) for x in r["ci95"]] == [-0.5734, 0.5734]
-    assert all(math.isnan(x) for x in ds.newcombe_paired(0, 0, 0, 0)["ci95"])
+    assert ds.newcombe_paired(0, 0, 0, 0) == {"difference": None, "ci95": [None, None], "n": 0}  # null, never NaN in the JSON
+
+
+def test_an_empty_denominator_writes_null_never_nan():
+    """Nit of pass 5b: ``share(k, 0)`` wrote NaN into the JSON."""
+    assert ds.share(0, 0) == {"count": 0, "n": 0, "share": None, "wilson95": [None, None]}
+    assert ds.mean_rate(np.array([]))["mean"] is None and ds.paired_difference(np.array([]), np.array([]))["mean"] is None
+    s = ds.share(3, 4)
+    assert s["share"] == 0.75 and all(0 <= x <= 1 for x in s["wilson95"])
 
 
 @pytest.mark.parametrize("big_a_case", ["above", "between", "negative"])
@@ -110,6 +118,15 @@ def test_h15s_qualifier_needs_the_opposite_sign_and_an_interval_without_zero():
     assert ds.h15(deciding, {"M": _cell(-0.2, 1.0)})["words"] is None  # the interval holds 0
     assert ds.h15(deciding, {"M": _cell(-1.0, -0.2)})["words"] is None  # the same sign
     assert ds.h15(_cell(-0.5, 0.5, point=0.0), {"M": _cell(0.2, 1.0)})["words"] is None  # no sign to oppose
+    assert ds.h15(deciding, {"M": {"difference": None, "ci95": [None, None], "n": 0}})["words"] is None  # an empty cell
+
+
+def test_h15_writes_both_qualifier_cells_beside_the_trigger():
+    """M4 of pass 5b: both qualifier cells, each with its table, difference and interval, under ``qualifier``."""
+    cells = {"convention M": {**ds.newcombe_paired(40, 9, 3, 948), "table": {"a": 40, "b": 9, "c": 3, "d": 948}},
+             "not-constant denominator": {**ds.newcombe_paired(30, 2, 8, 500), "table": {"a": 30, "b": 2, "c": 8, "d": 500}}}  # fmt: skip
+    out = ds.h15(ds.newcombe_paired(40, 5, 5, 950), cells)
+    assert out["qualifier"]["cells"] == cells and out["qualifier"]["triggered_by"] == []
 
 
 def test_the_cut_date_bootstrap_draws_the_same_dates_on_both_pairs_and_is_seeded():

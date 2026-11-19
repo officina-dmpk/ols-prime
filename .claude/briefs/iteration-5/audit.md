@@ -27,6 +27,17 @@ Read `docs/PROTOCOL.md`'s new section "Leak detectors measured against each othe
 
 Verdict: GO, GO with fixes, or NO-GO, with each finding rated Blocker, Major, Minor or Nit, written to `audit-5b-findings.md`.
 
+## Pass 5b-bis — the fix wave's diff, before the frozen commit is named
+
+**Added 2026-11-19**, after pass 5b's GO with fixes on `6ab7e3e` (code digest `8607e7c4…`). The object is the diff from `6ab7e3e` to the fix commit only; the rest of the tree keeps pass 5b's GO.
+1. **Each finding of `audit-5b-findings.md` against its fix:** M1 (platform pin before any bar is read; platform recorded), M2 (the guard: every registered command line, every forbidden role, real bars only with the two registered seeds), M4 (both qualifier cells; the per-leak file, written only when every check passes, deterministic, sufficient for phase 2), Minors 5–11 and 14, the nits. A fix that does more than its finding asks is a finding.
+2. **The new tests are independent** of the code they test (scalar rewrites of X3, X6, X6b, X9, X11, X12), and the mutant test kills the 16 mutants on a temporary copy without touching the repository.
+3. **The dated change-log line of 2026-11-19 after pass 5b** matches the code word for word: the replaced predictions (Minors 5 and 6), the metrics now implemented (Minors 7 and 8), the per-leak file, the command lines and seeds 29119 and 29120, the comparisons of Minor 13, and the case study's choices.
+4. **Reproduce the development digest on Windows at the fix commit** (`e03f78b1…bc48`), check that the generator's draw path did not change (`adversary.py` and the goldens), that the allowlist gained no rule, and that no test or default executes 20261118, 20261119 or 20261120.
+5. **`.claude/briefs/iteration-5/wave4.py`**, the unattended script of the official runs: it stops at the first failure, runs the confirmatory command only after a passing descriptive run, and compares what the protocol says it compares.
+
+Verdict: GO, GO with fixes, or NO-GO, written to `audit-5b-bis-findings.md`. A GO lets the orchestrator name the frozen commit (ruling 1's line) and start wave 4.
+
 ## Phase 2 — the results and the paper
 
 Recompute every number of the new rows from the runs' JSON, and every verdict from the registered rules. Read `paper/main.tex` claim by claim against `docs/RESULTS.md`, `paper.md`'s "Never claim" list and the citations' read level. GO, GO with fixes, or NO-GO, with each finding rated Blocker, Major, Minor or Nit.
