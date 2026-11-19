@@ -75,20 +75,38 @@
    - `control_can_flag` on a long-schedule-only `v`.
 
    Then add mutants `n1` to `n5` (see `audit-5b-bis-scripts/y4_new_mutants.py`) to `test_detector_mutants.py`, for 21 in all. The code must not change; the code digest stays `3b59007a…`.
-3. **The case study's one real call** (`case-study.md`, `bench/casestudy.py`). It reads Report n°2's and Report n°3's `series.npz` by their SHA-256, and it is a logged contact. Its choices are fixed in the 2026-11-19 line after pass 5b: payoff regressors as an attribution after the fact, the signal definitions, and HAC with a Bartlett kernel and 168 lags.
-4. **Audit phase 2** (`leakage-auditor`, `audit.md` "Phase 2"):
+
+   **Deferred on 2026-11-19 under Abdou's rule** (`CLAUDE.md`), provisionally: audit 2a's step 3 decides whether the deferral holds. It is logged, and it is reported as not run. These tests guard future runs against a silent stop; they change no number of wave 4. Instead, phase 2 does two things:
+   - it re-reads the five lines the mutants touch (`detectors.py:1016`, `1018`, `1031`, `1172` and `1208`);
+   - it checks the class counts directly in both runs' `reported.classes`, as predicted against flagged.
+3. **Done: the case study's one real call,** 2026-11-19, 19:42:24–19:44:37 UTC.
+   - It ran at HEAD `1088aac`, with code digest `3b59007a…`, and wrote `runs/2026-11-19-casestudy/`.
+   - Its contact line is the last line of `docs/PROTOCOL.md`. **Never run it again:** any other call is a new contact.
+   - Abdou chose to keep the case study on 2026-11-19.
+
+   The original step, for the record: the case study's one real call (`case-study.md`, `bench/casestudy.py`). It reads Report n°2's and Report n°3's `series.npz` by their SHA-256, and it is a logged contact. Its choices are fixed in the 2026-11-19 line after pass 5b: payoff regressors as an attribution after the fact, the signal definitions, and HAC with a Bartlett kernel and 168 lags.
+4. **Audit phase 2.** It is split in two parts.
+   - **2a, the numbers: done, GO with fixes** (5 Minor, 8 Nits, all wording; `audit-2a-findings.md`). Its fixes are logged in `docs/PROTOCOL.md`'s line "after audit phase 2a". The rows and the paper carry its wording (Minors 1–5), and the Minor 3 deferral holds.
+   - **The paper's first draft exists** in `paper/`, written under `paper-draft-1.md`. It compiles with MiKTeX: 17 pages, `make_numbers.py` regenerates `numbers.tex` byte for byte.
+     - Waiting for 2a's numbers: the abstract, §5, §8.4, and parts of §1, §4 and §10.
+     - Flagged by its writer: sentences close to "OLS is attention" and "an exact ridge state" (§1, §2, §7, §8.3), and statistical methods named without a citation (no reading note).
+   - **2b, the paper's claims.** It comes once `paper/main.tex` exists.
+
+   The original step (`leakage-auditor`, `audit.md` "Phase 2"):
    - recompute every number of the new rows from the runs' JSON and `verdicts.jsonl`, and every verdict from the registered rules;
    - check the qualifier and the bootstrap sentence;
    - read the `wave4.py` that actually spent the seed (diff `b71ba65..f12b9b5`) against `runs/2026-11-19-wave4.log`: pass 5b-bis read the previous version and the dry run of the amended one, not the amended file as run;
    - then the paper, claim by claim.
 5. **Write the record:**
    - the `docs/RESULTS.md` rows, after phase 2;
-   - the outcome and the bolder next step in `docs/ITERATIONS.md`;
+   - the outcome and the next step in `docs/ITERATIONS.md` (a bolder one only under `CLAUDE.md`'s rule of 2026-11-19);
    - the paper draft (`paper.md`, `paper/main.tex`: its "Never claim" list, the AI use reported, the endorser still needed).
 6. **The teacher's learning page.** It is in French, published as an Artifact, and kept outside the repository, as decided at iteration 4's wrap-up. Its link goes in the outcome.
 7. **Commit with Abdou's go-ahead.**
 
-## Candidate bolder steps (none registered)
+## Candidate bolder steps (none registered; all skipped on 2026-11-19)
+
+Abdou's rule of 2026-11-19 (`CLAUDE.md`): to reach the arXiv paper sooner, a bolder step is taken only when it would significantly improve the work. None of the candidates below passes that bar for the first version of the paper, so none is run.
 
 - **The auditor's (5b-bis):** measure the platform effect, rather than only refusing it.
   - Run the synthetic n = 10,000 line on Windows and in WSL2.

@@ -1141,3 +1141,41 @@ Climatology, always flat, buy and hold, moving-average momentum, random position
   - **What the real bars held, among the items "not examined before the official runs"** (counts only, read from both runs' `reported.classes`):
     - no cut whose truncation point is the series' last row (`cannot_flag_last_row` 0 on every schedule);
     - no "not predicted" cut for FI on M2 (16 of 16 and 128 of 128 predicted, and flagged).
+- 2026-11-19, after the case study's one real call and before audit phase 2. **The case study's contact with the data** (exploratory, test months; UTC, from `runs/2026-11-19-casestudy.log`, SHA-256 `125ad5d30e0ea4ed2815e08b923fabd7a1aee66bdf8532dd922c7e64d621f5da`).
+  - **When and where.** 19:42:24–19:44:37, on Windows, at HEAD `1088aac`. That commit and the uncommitted changes of the moment touch docs and agent files only; the code digest was `3b59007a…` before and after the call.
+  - **The command.** `python -m olsprime.bench.casestudy --report2 ../runs/2026-10-30-report2-wsl --report3 ../runs/2026-10-30-report3 --out ../runs/2026-11-19-casestudy`. Exit 0 in 128 s; it printed "registered inputs: True".
+  - **What it read** (`run.json`):
+    - Report n°2's `series.npz` `691e7ea7…` and Report n°3's `e8381799…`, the registered digests;
+    - the hourly bars of their 233 pairs, through `load_klines`, cut to `known_at < 2025-01-01`.
+
+    The vault's copy, `runs/vault/copy/series.npz`, was not passed on the command line. Audit phase 2 checks that it was not read.
+  - **The outputs** (SHA-256):
+    - `casestudy.json` `8d87294b0bf8ab26b364e04b339b36b064e63ca4731a29a38e78039665e2bcac`;
+    - `casestudy.md` `7b308f10d9be1d19286bfadff57031e3de1269fc7a533d5934cb50a242f69653`;
+    - `config.json` `ecc38cf2d8651b45540fa1eaa4cb77866f82c41074a9643ace321d6708e84277`;
+    - `run.json` `36e24c7b4ec391e4ac537e6e106be9ff999d2df1a3f19c67e0b727cf319dea0c`.
+  - **Not reported yet.** Its numbers go to `docs/RESULTS.md` only after audit phase 2 has read them. It was the only call; any other is a new contact, logged as such.
+- 2026-11-19, after audit phase 2a. **Audit 2a (`leakage-auditor`, `.claude/briefs/iteration-5/audit-2a-findings.md`): GO with fixes.** No Blocker and no Major; 5 Minor and 8 Nits, all wording.
+  - **What was recomputed.** 2,804 numbers of the two detector runs were recomputed from `verdicts.jsonl` by a reader that imports nothing from `olsprime`.
+    - 2,795 agree. The 9 others are confirmatory-run rows under convention P, where the run clips at 1.0 the normal interval of a mean per-cut rate and the auditor does not.
+    - The orchestrator re-ran the auditor's `a1_recompute.py` on both folders and got the same tables.
+    - The case study: 382 checks, 0 failed.
+  - **Corrections to the line "after wave 4 and before audit phase 2"** (N1). Its sentence on stderr is wrong as written.
+    - Each detector step's stderr holds 26,700 log lines "fold … skipped: no test row", expected: 267 folds × 100 units of the truncation gate. The orchestrator counted them in `runs/2026-11-19-wave4-*.out`.
+    - No step's stderr holds a Python warning, a traceback or `RepairFailed`.
+  - **Corrections to the case study's contact line** (N7).
+    - `load_klines` read the hourly rows of 2025, and `load_bars` dropped them before any computation.
+    - The log holds no command line; the command is the one that line gives.
+    - The auditor established that the vault was not read by path and by the seal's state: `power.run_output` refuses `runs/vault`, the manifest digest is the sealed one, and there is no `OPEN` or `ACCESS.log`.
+  - **Minor 3 of pass 5b-bis: the deferral holds.**
+    - The five lines read right at the frozen code. Lines 1016, 1018, 1031 and 1172 were also shown by behaviour on synthetic bars; line 1208 by reading only (N6).
+    - Predicted counts equal flagged counts in both runs.
+    - No registered sentence rests on a `check_classes` count that cannot be verified, except "and flagged" in "predicted, and flagged", which is the assertion's evidence (N5).
+  - **The wording the rows and the paper must carry:**
+    - H15's cell compares one run of TRUNC-0 with FI's two runs (×3 and ÷3). At one run each, TRUNC-0 is above FI ×3 alone and below FI ÷3 alone (Minor 1).
+    - Under "date-dependent", the size moves but not the labels: they are the same in 2,000 of 2,000 subsets (Minor 2).
+    - "By more than 1 point" is the label of one cell, all leaks under convention G. On the not-constant leaks the interval straddles −1, and convention P reverses the sign (Minor 3).
+    - TWO-RUN's M2 class counts take any of 16 runs, both σ (Minor 4).
+    - In the case study, the skill lies in "move or no move", and "share left ≈ 1" is not "zero loadings" (Minor 5).
+    - Underflowed McNemar p-values are written "p < 10^-300" (N2).
+    - P's mean per-cut rates are given without a normal interval (N3).

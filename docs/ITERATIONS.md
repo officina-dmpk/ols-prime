@@ -640,6 +640,7 @@ So this iteration measures our detector against its rivals on one open benchmark
 - `RESULTS.md` has the new rows with their variant counts, and every item not run is reported as not run.
 - The paper draft exists and its claims passed `leakage-auditor`.
 - The outcome and one bolder next step are recorded here, with the learning page's link.
+  - **Changed on 2026-11-19 by Abdou:** to reach the arXiv paper sooner, a bolder next step is proposed only when it would significantly improve the work; otherwise it is skipped (`CLAUDE.md`).
 - Commit, merge and push only with Abdou's go-ahead.
 
 **Plan.** Briefs are in `.claude/briefs/iteration-5/`. At most three agents run at once.

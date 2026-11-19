@@ -49,4 +49,4 @@ Never claim more than your tests show.
 - What you built (files and public API).
 - The invariants you tested, with counts of passed, failed and ignored tests.
 - What you could not verify, and why.
-- One bolder next step.
+- A bolder next step, only if it would significantly improve the work.

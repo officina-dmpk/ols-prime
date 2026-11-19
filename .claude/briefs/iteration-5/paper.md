@@ -29,3 +29,8 @@ OLS is attention; signed weights; an exact ridge state; the idea of a two-run te
 ## Done when
 
 The draft compiles, every number traces to a row of `docs/RESULTS.md` or a run's JSON, and audit phase 2 gave GO on the claims. Submission is Abdou's act, after their decisions on the licence, the name, the category and the endorser.
+
+## Changed on 2026-11-19 (orchestrator, under Abdou's rule that the paper comes first)
+
+- **The first draft is written by a fresh Opus agent,** under `paper-draft-1.md`. The orchestrator reads it, and audit phase 2b reads every claim.
+- **The citation rule, for this draft.** No source in the reading notes is read in full. A source is cited only for a statement found in the parts the notes record as read, with the part named in a comment. A credit that cannot be supported this way is dropped.

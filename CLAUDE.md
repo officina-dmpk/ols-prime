@@ -1,6 +1,6 @@
 # OLS Prime — working agreement
 
-**Motto: we should be more ambitious.** Ambitious in what we build and test, never in what we claim. Every report, from every agent, ends with one bolder next step.
+**Motto: we should be more ambitious.** Ambitious in what we build and test, never in what we claim. Since 2026-11-19, to reach the arXiv paper sooner, a report proposes a bolder next step only when it would significantly improve the work; otherwise it proposes none.
 
 OLS Prime is a from-scratch decision model whose attention is ordinary least squares. Its memory, Matrix, stores regression sufficient statistics in the style of OptMem. Crypto markets are the test bench. Read `docs/DESIGN.md`, `docs/PROTOCOL.md` and `docs/HYPOTHESES.md` before changing any model, data or evaluation code.
 
@@ -41,7 +41,7 @@ Delegation rules:
 4. Audit with `leakage-auditor`; fix or log every finding.
 5. Record the iteration:
    - append the results to `docs/RESULTS.md`;
-   - write the outcome and the next bolder step in `docs/ITERATIONS.md`.
+   - write the outcome and the next step in `docs/ITERATIONS.md` (a bolder one only under the motto's rule).
 6. Teach: `teacher` writes the iteration's learning page. The orchestrator checks it, publishes it as an Artifact and adds its link to the outcome in `docs/ITERATIONS.md`.
 7. Commit only with Abdou's go-ahead.
 
