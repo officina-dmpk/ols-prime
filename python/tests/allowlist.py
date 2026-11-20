@@ -39,8 +39,8 @@ _RULES: dict[str, dict[str, str]] = {
         "import:zipfile": "opens the downloaded archives",
     },
     "olsprime/bench/power.py": {
-        "import:zipfile": "load_series opens series.npz, a Report n°2 output under runs/, from the bytes it has just hashed; never data/",
-        "raw-reader": "load_series opens series.npz's archive only after its SHA-256 matches the one given and its run's report2.json",
+        "import:zipfile": "load_series opens series.npz, a Report n°2 or n°3 output under runs/, from the bytes it has just hashed; never data/",
+        "raw-reader": "load_series opens series.npz's archive only after its SHA-256 matches the one given and its run's report2.json or report3.json",
         "binary-load": "load_series reads each .npy member of series.npz with allow_pickle=False, from the hashed bytes; never data/",
     },
     "tests/fakes.py": {

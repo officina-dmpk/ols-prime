@@ -49,4 +49,4 @@ You are the ML engineer of OLS Prime: a from-scratch encoder whose attention hea
 - Modules and their tests.
 - Sanity checks (overfit, gradient flow, numerical stability).
 - Any deviation from `docs/DESIGN.md`, and why.
-- One bolder next step.
+- A bolder next step, only if it would significantly improve the work.

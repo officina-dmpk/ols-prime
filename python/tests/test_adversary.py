@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import math
+import platform
 from collections import Counter
 from dataclasses import replace
 
@@ -415,3 +416,150 @@ def test_no_model_code_imports_the_adversary_or_the_leaks():
                     assert "adversary" not in name and "bench.leaks" not in name, (path, name)
     text = (package / "bench" / "adversary.py").read_text(encoding="utf-8")
     assert text.startswith('"""!!! LEAKY FUNCTIONS, ON PURPOSE. NOT MODELS. !!!')
+
+
+# --- The quantile placement (iteration 5, docs/PROTOCOL.md §1.3, §1.4, §1.7) ------------------------------
+
+GOLDEN_H1_BANDS = {  # computed by the orchestrator at 6044037, before any edit (numpy 2.5.4, Python 3.12.10, Windows)
+    20261029: "f0f74ccedbeb6d0752eda58426d6914d1c26c29f66c7be8264934490f43ba602",
+    51118: "ac601a089ed529b8dbf666bb28c9e308e404d4fdf99ed298549297757632922b",
+}
+REAL_TABLE = REPO_ROOT / "runs" / "2026-11-18-quantile-table" / "table.json"  # outside git; runs_dir() is redirected in tests
+needs_real_table = pytest.mark.skipif(not REAL_TABLE.is_file(), reason="the registered quantile table is not on this machine")
+# build_table on a fixed synthetic input (two pairs of 40 synthetic days): bytes pinned, hence the builder.
+SYNTHETIC_TABLE_SHA256 = "d02a82525e3da098ef7cf5d9ed6db356648e3d3ee2a265f1d10775f1281f2d47"
+SYNTHETIC_TABLE_PORTABLE = "3a5f986f91979eecffe26011afb4b369ee2ead5f276eccf3d492fe5034534f51"  # 12 digits: equal on Windows and WSL2
+
+
+def digest_line(leak: adv.Leak) -> str:
+    from olsprime.bench.detectors import digest_line as line
+
+    return line(leak)
+
+
+@pytest.fixture(scope="module")
+def synthetic_table() -> dict[str, np.ndarray]:
+    bars = {"BTCUSDT": synthetic_bars("BTCUSDT", days=40, seed=101), "ETHUSDT": synthetic_bars("ETHUSDT", days=40, seed=102)}
+    return adv.build_table(bars)
+
+
+# The exact digests are machine-specific: exp of the same log-uniform margin draw differs by one ulp between the Windows
+# C runtime and glibc (math.exp and np.exp alike, numpy 2.5.4) (4 of the first 2,000 leaks of seed 20261029; WSL2 gives 5606a1e1... for 20261029 and
+# 5d9e37ea... for 51118). They are asserted on Windows, the machine of the goldens; the portable digests (floats to
+# 12 significant digits, equal on both machines checked) everywhere.
+PORTABLE_H1_BANDS = {
+    20261029: "be11ba5d40db63383c26c447864ad87347138a1f42a971d092efcb3b3df3ad13",
+    51118: "a5e9334ab9e8e564eb42138be9c666303ad9818bd68db08f1d5bb56de6883070",
+}
+PORTABLE_QUANTILE_51118 = "200809fdc6cfdaf49b939bf99d869030dcb123ea36bf1c43836729d4f1d546fb"
+DEVELOPMENT_DIGEST_WINDOWS = "e03f78b187c1f7a7b62681a6c16214f7bd79d7f13b58459521cacb731ad9bc48"  # seed 51118, quantile
+
+
+@pytest.mark.parametrize("seed", sorted(GOLDEN_H1_BANDS))
+def test_the_default_placement_is_the_generator_of_iteration_3_bit_for_bit(seed):
+    from olsprime.bench.detectors import development_digest, portable_digest
+
+    default, explicit = adv.generate(10_000, seed), adv.generate(10_000, seed, placement="h1-bands")
+    assert [digest_line(x) for x in default] == [digest_line(x) for x in explicit]
+    assert portable_digest(default) == PORTABLE_H1_BANDS[seed]
+    if platform.system() == "Windows":
+        assert development_digest(default) == GOLDEN_H1_BANDS[seed]
+
+
+def test_the_table_builder_gives_pinned_bytes_on_a_synthetic_input(synthetic_table):
+    import hashlib
+
+    raw = adv.table_bytes(synthetic_table)
+    if platform.system() == "Windows":  # np.log differs by an ulp between machines: the bytes are pinned where they were made
+        assert hashlib.sha256(raw).hexdigest() == SYNTHETIC_TABLE_SHA256
+    rounded = ",".join(f"{k}:" + ",".join(format(float(x), ".12g") for x in synthetic_table[k]) for k in sorted(synthetic_table))
+    assert hashlib.sha256(rounded.encode("ascii")).hexdigest() == SYNTHETIC_TABLE_PORTABLE
+    assert sorted(synthetic_table) == sorted(adv.TABLE_QUANTITIES)
+    for k, v in synthetic_table.items():
+        assert v.dtype == np.float64 and np.all(np.diff(v) >= 0) and np.all(np.isfinite(v))
+        if k in adv.TABLE_POSITIVE_ONLY:
+            assert np.all(v > 0)
+    assert raw.startswith(b'{"body":[') and b" " not in raw
+    for k, v in adv.parse_table(raw).items():  # the parser writes back to the same bytes
+        assert np.array_equal(v, synthetic_table[k])
+
+
+@pytest.mark.parametrize("q", adv.TABLE_QUANTITIES)
+def test_a_quantile_threshold_consumes_exactly_one_draw(synthetic_table, q):
+    place = adv.Placement("quantile", synthetic_table)
+    rng, ref = np.random.default_rng([5, 7]), np.random.default_rng([5, 7])
+    c, pos = adv._threshold(rng, q, place)
+    level = ref.uniform(0.02, 0.98)
+    assert rng.bit_generator.state == ref.bit_generator.state  # one uniform draw, no more
+    assert c == float(np.quantile(synthetic_table[q], level, method="linear")) and place.calls == 1
+    expected = "window-dependent" if q in adv.SHARES else "none" if q == "wick_ratio" else adv._band_position(q, c)
+    assert pos == expected
+    # Under h1-bands the counter counts too, and the draw is iteration 3's.
+    place_h1, a, b = adv.Placement("h1-bands"), np.random.default_rng(9), np.random.default_rng(9)
+    assert adv._threshold(a, q, place_h1) == adv._threshold(b, q) and place_h1.calls == 1
+
+
+def test_leaks_drawn_without_a_threshold_are_the_same_under_both_placements(synthetic_table):
+    """On seed 51118 (development), any table: the placement-invariant subset of §1.6."""
+    invariant = 0
+    for i in range(10_000):
+        h1, q = adv.Placement("h1-bands"), adv.Placement("quantile", synthetic_table)
+        a, b = adv._draw_leak(51118, i, h1), adv._draw_leak(51118, i, q)
+        assert h1.calls == 0 or q.calls > 0  # the streams agree up to the first call
+        if h1.calls == 0:
+            invariant += 1
+            assert (repr(a.expr), a.output, a.tags) == (repr(b.expr), b.output, b.tags), i
+    assert invariant == 8316  # §1.6 counts 8,258 of 10,000 on a neutral seed
+
+
+def test_the_quantile_placement_needs_the_registered_table(tmp_path, synthetic_table):
+    with pytest.raises(adv.TableRefused, match="needs table_path"):
+        adv.generate(5, 51118, placement="quantile")
+    with pytest.raises(adv.TableRefused, match="needs table_path"):
+        adv.draw_leak(51118, 0, placement="quantile")
+    wrong = tmp_path / "table.json"
+    wrong.write_bytes(adv.table_bytes(synthetic_table))
+    with pytest.raises(adv.TableRefused, match="not the registered"):
+        adv.generate(5, 51118, placement="quantile", table_path=wrong)
+    with pytest.raises(adv.TableRefused, match="for placement='quantile' only"):
+        adv.generate(5, 51118, table_path=wrong)
+    with pytest.raises(ValueError, match="unknown placement"):
+        adv.generate(5, 51118, placement="uniform")
+    with pytest.raises(adv.TableRefused):
+        adv.parse_table(adv.table_bytes(synthetic_table).replace(b"[", b"[ ", 1))  # not its own bytes
+
+
+@needs_real_table
+def test_the_registered_table_hashes_to_its_digest_and_drives_the_quantile_draw():
+    import hashlib
+
+    raw = REAL_TABLE.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == adv.QUANTILE_TABLE_SHA256
+    table = adv.load_table(REAL_TABLE)
+    assert {k: v.size for k, v in table.items()} == {"body": 1004, "range": 1004, "fill": 1004, "close_location": 1004,
+                                                     "taker_base_share": 1004, "taker_quote_share": 1004,
+                                                     "upper_wick": 997, "lower_wick": 994, "wick_ratio": 987}  # fmt: skip
+    from olsprime.bench.detectors import development_digest, portable_digest
+
+    population = adv.generate(10_000, 51118, placement="quantile", table_path=REAL_TABLE)
+    assert portable_digest(population) == PORTABLE_QUANTILE_51118
+    if platform.system() == "Windows":
+        assert development_digest(population) == DEVELOPMENT_DIGEST_WINDOWS
+    leaks = population[:200]
+    assert leaks == [adv.draw_leak(51118, i, placement="quantile", table_path=REAL_TABLE) for i in range(200)]
+    lo = {q: float(np.quantile(table[q], 0.02)) for q in table}
+    hi = {q: float(np.quantile(table[q], 0.98)) for q in table}
+    for leak in leaks:  # every threshold lies between the 2nd and the 98th percentiles of its quantity (§1.4)
+        for node in _nodes(leak.expr):
+            if isinstance(node, adv.Cmp) and isinstance(node.rhs, adv.Const) and isinstance(node.lhs, adv.At):
+                assert lo[node.lhs.q] <= node.rhs.c <= hi[node.lhs.q], leak.render()
+            if isinstance(node, adv.Cell) and node.c != adv.SMALL_BODY:
+                assert lo["body"] <= node.c <= hi["body"], leak.render()
+
+
+def _nodes(expr):  # noqa: ANN001, ANN202
+    yield expr
+    for name in ("lhs", "rhs", "a", "b"):
+        child = getattr(expr, name, None)
+        if child is not None and not isinstance(child, (int, float)):
+            yield from _nodes(child)

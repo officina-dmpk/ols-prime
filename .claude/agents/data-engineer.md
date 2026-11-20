@@ -49,4 +49,4 @@ You are the data engineer of OLS Prime. Every result the project will ever claim
 - Pipelines and their tests.
 - Data summary (rows, ranges, gaps, repairs).
 - Licenses recorded.
-- One bolder next step.
+- A bolder next step, only if it would significantly improve the work.
