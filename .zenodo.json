@@ -1,0 +1,22 @@
+{
+  "upload_type": "software",
+  "title": "OLS Prime: code and records of \"How Often Do Look-Ahead Detectors Catch a Leak? A Pre-Registered Benchmark on Crypto Market Bars\"",
+  "creators": [
+    {"name": "Ragued, Abdallah"},
+    {"name": "El Badaoui, Ilias"}
+  ],
+  "description": "<p>OLS Prime is a from-scratch decision model whose attention is ordinary least squares, with a memory (Matrix) of regression sufficient statistics. This archive holds its code (Rust and Python), its pre-registered protocol and hypotheses, its audit records and the LaTeX source of the paper.</p><p>The paper measures look-ahead leak detectors (future invariance, truncation, re-tiling, a two-run perturbation detector and a future-shuffle twin) on a generated population of temporal leaks, with honest twins, on daily BTCUSDT and ETHUSDT bars.</p><p>The market data (Binance Vision, CC BY-NC-SA 4.0) are not included. The leak corpus's outputs are not included either: they derive from those data. The code, the seeds and the SHA-256 digests recorded in docs/PROTOCOL.md regenerate them byte for byte.</p>",
+  "license": "MIT",
+  "access_right": "open",
+  "keywords": [
+    "look-ahead bias",
+    "data leakage",
+    "leak detection",
+    "benchmark",
+    "pre-registration",
+    "ordinary least squares",
+    "attention",
+    "financial time series",
+    "cryptocurrency"
+  ]
+}

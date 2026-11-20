@@ -35,3 +35,9 @@ The draft compiles, every number traces to a row of `docs/RESULTS.md` or a run's
 - **The first draft is written by a fresh Opus agent,** under `paper-draft-1.md`. The orchestrator reads it, and audit phase 2b reads every claim.
 - **The citation rule, for this draft.** No source in the reading notes is read in full. A source is cited only for a statement found in the parts the notes record as read, with the part named in a comment. A credit that cannot be supported this way is dropped.
 - **Method citations** (2026-11-19). The original paper of a statistical or numerical method (Wilson, Newcombe, McNemar, the stationary bootstrap, HAC, and so on) may be cited for the method's definition alone. Its metadata and its abstract or first page are checked at the publisher by `scout`, and recorded in `reading-methods.md`.
+  - **Amended on 2026-11-20 (Abdou), for arXiv v1.** If no abstract or first page can be read at a primary source, the original paper may still be cited to name the method, on three conditions:
+    - (a) the sentence states nothing about its content beyond its title or the method's usual name;
+    - (b) the paper says that only the bibliographic record was checked;
+    - (c) what we computed is defined by a formula written out in the paper, or by our code.
+
+    This applies to Wilson, Harvey–Leybourne–Newbold, Politis–Romano, Page, and Chan–Golub–LeVeque (`.claude/briefs/arxiv-v1/audit-findings.md`, M2).

@@ -797,3 +797,67 @@ So this iteration measures our detector against its rivals on one open benchmark
 **Bolder next step.** Only one candidate passes Abdou's bar of 2026-11-19, and it is for a v2, not for v1: the population of realistic pipeline bugs and the labelled corpus of community strategies (see above). "Y % of our generator" is the paper's weakest point, and "X % of real bugs" is the claim practitioners would cite.
 
 **Learning page.** None this iteration: Abdou dropped it on 2026-11-18.
+
+## arXiv v1 — preparing the submission (2026-11-20)
+
+**Goal.** Take draft 4 of `paper/` to a submittable v1: pay the reading debts audit 2b logged (m9, N16), check the sources revised since they were read, and fold in Abdou's decisions. No experiment runs, and no data, model or evaluation code changes.
+
+**Set up.**
+- `iteration-5` was merged into `main` locally at `670d6b0` (officina-dmpk/ols-prime#9, CI green on every job) and pushed, with Abdou's go-ahead. The branch `arxiv-v1` was made from it.
+
+**Abdou's decisions (2026-11-20).**
+- arXiv category: cs.LG, cross-listed to q-fin.ST.
+- Licence: CC BY-NC-SA 4.0, as the Binance Vision dataset terms ask of derived works.
+- The authors, decided later that day: Abdallah Ragued and Ilias El Badaoui.
+- The repository will be archived on Zenodo with a DOI, which Abdou creates.
+- The title, decided later that day: "How Often Do Look-Ahead Detectors Catch a Leak? A Pre-Registered Benchmark on Crypto Market Bars".
+- The leak corpus's outputs are not released with v1. The code, the seeds and the digests are public.
+- `.zenodo.json` gives the archive's metadata: the two authors, MIT for the code, and the data excluded. Zenodo's GitHub integration is on for the repository; the release that mints the DOI waits for a green CI and the merge.
+- Still open: the endorser (from cs.LG; Ilias El Badaoui has never published on arXiv and will ask researchers he knows), and the Zenodo DOI.
+
+**Deliverables.**
+1. The reading (`scout`, brief `.claude/briefs/arxiv-v1/reading.md`): the abstract and first page of the ten method papers, Chan, Golub and LeVeque's 1983 pages, and the latest versions of 2504.09663, MesaNet and Log-Linear Attention.
+2. The paper's citing sentences and `refs.bib` corrected from the notes.
+3. `leakage-auditor` reads the diff of `paper/` against draft 4 before v1.
+
+**Done when.** The paper compiles with no error, every `\todo` left is one of Abdou's open decisions, the diff passed `leakage-auditor`, and the outcome is recorded here.
+
+**Outcome (2026-11-20).** Done, except for Abdou's decisions. The paper is ready for v1 once they are made.
+- **The readings.** `scout` ran twice:
+  - `reading-notes.md`: the method papers and the three revised arXiv sources;
+  - `reading-2-notes.md`: every cited passage read again, as page images where a copy was reachable.
+- **What changed in the paper.**
+  - **MesaNet** moved to v2 (ICLR 2026). Its equation numbers changed.
+  - **Log-Linear Attention** moved to v3. Its bucket merging is cited in §3.2.
+  - **OptMem's summaries** are no longer said to be written by a language model or lossy. The README says neither, and `docs/DESIGN.md` is corrected too.
+  - **Freqtrade's comparison** is credited to pandas' `DataFrame.compare`.
+  - **Two formulas are now written out**, so that no claim rests on an unread paper:
+    - the pairwise merge, checked against `crates/ols-core/src/centred.rs` (13 tests);
+    - Harvey–Leybourne–Newbold's correction, as `eval/stats.py` computes it.
+  - **The reading** is described as it was done: which passages were read again, how, and which were not.
+- **The audit.** `leakage-auditor` gave GO with fixes, with no Blocker: 3 Major, 9 Minor and 5 Nits (`.claude/briefs/arxiv-v1/audit-findings.md`). Every finding is fixed except two:
+  - m8, the draft markers in the PDF, waits for the title;
+  - one Nit, the "(1979)" attribution in the comments of `crates/ols-core`, is logged in `docs/PROTOCOL.md`.
+
+  The fixes were not audited again. Most follow the auditor's replacement texts. Three wordings are the orchestrator's own:
+  - freqtrade's two truncated backtests per trade, checked against `lookahead.py` lines 144–159, the file the auditor downloaded, with the SHA-256 in `refs.bib`;
+  - the HLN horizon `h`, as `eval/stats.py`'s docstring defines it;
+  - Theorem 4.3's condition of equal tuple counts, from `reading-2-notes.md`.
+
+  The paper compiles, now as draft 5. The digests of the files the auditor read verbatim are in `audit-findings.md`.
+- **The debts.**
+  - **m9 is half paid.** Five method papers were read to their abstract at least. The other five (Wilson, Harvey–Leybourne–Newbold, Politis–Romano, Page, and Chan–Golub–LeVeque) could not be read at any primary source. They stay cited only to name the method, under the rule's amendment that Abdou approved on 2026-11-20 (`.claude/briefs/iteration-5/paper.md`).
+  - **N16 stays open.**
+- **Checks.**
+  - The paper compiles with MiKTeX with no error and no BibTeX warning, in 24 pages.
+  - No code changed, so the test suites were not re-run; the green CI of officina-dmpk/ols-prime#9 applies.
+  - Five `\todo`s remain, all Abdou's decisions.
+- **Still Abdou's:**
+  - the title;
+  - the author name;
+  - the endorser, from cs.LG;
+  - the repository archive;
+  - the release of the leak corpus;
+  - then the submission itself.
+
+**Bolder next step.** None for v1. The realistic-bug population and the labelled corpus of strategies recorded in iteration 5 remain the candidate for v2.
