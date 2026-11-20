@@ -810,7 +810,10 @@ So this iteration measures our detector against its rivals on one open benchmark
 - Licence: CC BY-NC-SA 4.0, as the Binance Vision dataset terms ask of derived works.
 - The authors, decided later that day: Abdallah Ragued and Ilias El Badaoui.
 - The repository will be archived on Zenodo with a DOI, which Abdou creates.
-- Still open: the title, the endorser (now from cs.LG), the Zenodo DOI, and any release of the leak corpus.
+- The title, decided later that day: "How Often Do Look-Ahead Detectors Catch a Leak? A Pre-Registered Benchmark on Crypto Market Bars".
+- The leak corpus's outputs are not released with v1. The code, the seeds and the digests are public.
+- `.zenodo.json` gives the archive's metadata: the two authors, MIT for the code, and the data excluded. Zenodo's GitHub integration is on for the repository; the release that mints the DOI waits for a green CI and the merge.
+- Still open: the endorser (from cs.LG; Ilias El Badaoui has never published on arXiv and will ask researchers he knows), and the Zenodo DOI.
 
 **Deliverables.**
 1. The reading (`scout`, brief `.claude/briefs/arxiv-v1/reading.md`): the abstract and first page of the ten method papers, Chan, Golub and LeVeque's 1983 pages, and the latest versions of 2504.09663, MesaNet and Log-Linear Attention.

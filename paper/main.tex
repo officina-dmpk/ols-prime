@@ -48,10 +48,10 @@
 \newcommand{\UN}{\textsc{union}}
 \newcommand{\pct}{\%}
 
-\title{Measuring look-ahead detectors: future invariance against truncation, re-tiling and
-resampling on a generated population of temporal leaks, with a pre-registered forecasting case
-study on crypto bars\\[4pt]
-\large\textcolor{red}{[Working title, a draft: Abdou decides the title.]}}
+\title{How Often Do Look-Ahead Detectors Catch a Leak?\\ A Pre-Registered Benchmark on Crypto Market Bars}
+% Title chosen by Abdou on 2026-11-20. The working title of draft 4 was "Measuring look-ahead
+% detectors: future invariance against truncation, re-tiling and resampling on a generated
+% population of temporal leaks, with a pre-registered forecasting case study on crypto bars".
 % The former working title of paper.md, dropped after audit 2b (Minor 11: it said "OLS attention"):
 % Measuring a look-ahead detector: future invariance against its rivals on a generated
 % population of temporal leaks, with a pre-registered case study of OLS attention on crypto bars
@@ -87,11 +87,10 @@ these bars. A pre-registered hourly study and two exploratory analyses are repor
 no profit is claimed.
 \end{abstract}
 
-\noindent\textbf{Open decisions (Abdou's, not the draft's):} the title; the endorser
-\todo{an author with no institution needs an endorsement from an established arXiv author of cs.LG};
-the Zenodo archive's DOI; any public release of the leak corpus.
-Decided on 2026-11-20: the authors; primary category cs.LG, cross-listed to q-fin.ST; licence
-CC BY-NC-SA 4.0 (\cref{sec:data}); the repository archived on Zenodo.
+% Open before submission (Abdou's): the endorser (an established arXiv author of cs.LG) and the
+% Zenodo DOI (\todo in sec:repro). Decided on 2026-11-20: the title, the authors, primary category
+% cs.LG cross-listed to q-fin.ST, licence CC BY-NC-SA 4.0, a Zenodo archive, and no release of the
+% leak corpus's outputs with v1.
 
 % =============================================================================================
 \section{Introduction}\label{sec:intro}
@@ -1303,7 +1302,8 @@ data themselves are not redistributed. Our reading of the terms, and of the Bina
 that they supplement, is partial and is not legal advice. This paper is licensed under
 CC BY-NC-SA 4.0, as the dataset terms' clause 4.5 asks of redistributed derivative works.
 The leak corpus's code is ours and MIT-licensed; its outputs on the bars derive from the data, and
-their release waits for an answer on the terms. \todo{Release of the corpus: Abdou's decision.}
+they are not released with this version. The code, the seeds and the SHA-256 digests of every
+output are, so that anyone with the archives can regenerate the corpus and check it byte for byte.
 
 \bibliographystyle{plainnat}
 \bibliography{refs}
