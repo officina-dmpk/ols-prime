@@ -1204,3 +1204,16 @@ Climatology, always flat, buy and hold, moving-average momentum, random position
     - **N16.** `docs/DESIGN.md` credits the pairwise variance update to Chan, Golub and LeVeque's 1979 report, and the paper cites their 1983 paper. A read of the 1983 paper's pages is still due.
     - **N18.** `docs/DESIGN.md`'s OptMem sentence was corrected in place on 2026-11-19, and its §3 still calls Matrix's summaries "exact". That word belongs to the design document; the paper does not use it.
     - **m9.** Ten method papers are cited from their metadata only. A `\todo` in `paper/main.tex` asks for their first pages to be read before submission.
+- 2026-11-20, before arXiv v1 (branch `arxiv-v1`). **The reading debts and the pre-submission audit.** No number, macro, run or code changed, and there was no contact with the data.
+  - **The readings.** `scout` ran twice: `.claude/briefs/arxiv-v1/reading-notes.md` (method papers, revised arXiv sources) and `reading-2-notes.md` (the cited passages read again, mostly as page images).
+    - MesaNet's equation numbers moved in v2.
+    - Log-Linear Attention's bucket merging is in §3.2 of v3.
+    - OptMem's README says neither "language model" nor "lossy", so the paper and `docs/DESIGN.md` were corrected.
+  - **The audit.** `leakage-auditor` gave GO with fixes, with no Blocker: 3 Major, 9 Minor and 5 Nits (`.claude/briefs/arxiv-v1/audit-findings.md`). Every finding is fixed except m8 and the last Nit:
+    - m8, the rendered draft markers, waits for Abdou's title;
+    - the Nit on `crates/ols-core/src/centred.rs:10`, `:142` and `lib.rs:18`, which still say "Chan, Golub and LeVeque (1979)" without "attributed", is logged here, outside the diff.
+  - **m9 of audit 2b is half paid.**
+    - Five method papers were read at least to their abstract: McNemar, Brown–Durbin–Evans and Patton in their articles; Diebold–Mariano and Newey–West in the NBER working papers that preceded them.
+    - Five could not be read at any primary source: Wilson, Harvey–Leybourne–Newbold, Politis–Romano, Page, and Chan–Golub–LeVeque.
+    - They stay cited under the amendment of the method-citation rule that Abdou approved on 2026-11-20 (`.claude/briefs/iteration-5/paper.md`).
+  - **N16 stays open.** No page of Chan, Golub and LeVeque, 1979 or 1983, was read. The paper now writes the merge formula out, checked against `centred.rs` by the auditor, so no statement rests on the citation.

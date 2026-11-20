@@ -75,7 +75,7 @@ For any period R, this gives:
 - the exact signed contribution of any sub-period, down to a single day;
 - a one-line summary of the period: its own regression `β_R`, its mean outcome and its residual variance.
 
-This is OptMem's idea — an append-only log with a binary tree of summaries built over it — with summaries that are exact instead of written by a model. Like OptMem, Matrix keeps the raw log; the difference is that its summaries are regression sufficient statistics, while OptMem's are written by a language model and lossy (corrected 2026-11-19, `.claude/briefs/iteration-5/reading-methods.md`).
+This is OptMem's idea — an append-only log with a binary tree of summaries built over it — with summaries that are exact instead of written as one-line text by the agent. Like OptMem, Matrix keeps the raw log; the difference is that its summaries are regression sufficient statistics, while OptMem's are one-line text written by the agent (corrected 2026-11-19, `.claude/briefs/iteration-5/reading-methods.md`; on 2026-11-20 the README, read verbatim, says neither "language model" nor "lossy": `.claude/briefs/arxiv-v1/audit-findings.md`, m9).
 
 **Causality.** A decision taken at t over horizon h has an outcome known only at t + h. The entry joins Matrix then, never before.
 
@@ -90,7 +90,7 @@ This is OptMem's idea — an append-only log with a binary tree of summaries bui
 ### 3.1 Centred nodes (iteration 3)
 
 A second tree holds every node in centred form, `(n, z̄, M_zz, ȳ, M_yz, M_yy)`, where `M_zz = Σ(z − z̄)(z − z̄)ᵀ`.
-- **Merge.** Two nodes merge with the pairwise update of Chan, Golub and LeVeque (1979): `M(A ∪ B) = M(A) + M(B) + (n_A·n_B / n)·δ δᵀ`, where δ is the difference of the two means. The cost is O(p²) per merge.
+- **Merge.** Two nodes merge with the pairwise update attributed to Chan, Golub and LeVeque (Stanford report STAN-CS-79-773, 1979; *The American Statistician* 37(3), 1983; neither read at a primary page, 2026-11-20): `M(A ∪ B) = M(A) + M(B) + (n_A·n_B / n)·δ δᵀ`, where δ is the difference of the two means. The cost is O(p²) per merge.
 - **Leaves and partial blocks.** They are computed by the corrected two-pass scan: first the mean, then the centred sums minus `(Σd)(Σd)ᵀ/n`. That correction removes the first-order error of the rounded mean. A diagonal that rounds below zero, as a constant column can, is set to zero.
 - **Symmetry.** Only one triangle of `M_zz` and `M_yy` is computed. It is then mirrored, so both blocks are exactly symmetric.
 
@@ -265,7 +265,7 @@ Two timescales follow: Matrix and the readout weights at every bar, gradient-fre
   - §5 makes label smoothing an ablation and recalibrates the rule's probabilities inside the fold.
   - §7 adds the adaptation loops, after a second review, on self-improvement. They are registered as H10–H12.
 - 2026-10-28: after Audit B of iteration 2.
-  - §3 says that the raw entries stay in the log, as OptMem's do too; Matrix's summaries are sufficient statistics where OptMem's are written by a model (corrected 2026-11-19).
+  - §3 says that the raw entries stay in the log, as OptMem's do too; Matrix's summaries are sufficient statistics where OptMem's are one-line text written by the agent (corrected 2026-11-19 and 2026-11-20).
   - §4 states the row sum under `λI` exactly: `1 − λ·e₀ᵀ(KᵀK + λI)⁻¹q`.
   - §7 limits the closed form for GCV to `Λ = λI`, or to centred statistics.
 - 2026-10-29: iteration 3 builds the centred core.
